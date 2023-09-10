@@ -35,7 +35,7 @@ local opts = {
 		capabilities = require("cmp_nvim_lsp").default_capabilities(),
 		standalone = true, -- necessary. otherwise c-space only works in main.rs and not in the modules (is that a bug?)
 		on_attach = function(_, bufnr)
-			vim.keymap.set("n", "<C-space>", rt.hover_actions.hover_actions, { buffer = bufnr})
+			vim.keymap.set("n", "<c-space>", rt.hover_actions.hover_actions, { buffer = bufnr})
 			vim.keymap.set("n", "<leader>a", rt.code_action_group.code_action_group, {buffer = bufnr })
 		end,
 	}, -- rust-analyzer options
