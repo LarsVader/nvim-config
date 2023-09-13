@@ -38,6 +38,7 @@ local plugins = {
 		}
 	},
 	{"nvim-treesitter/nvim-treesitter", build = ":TSUpdate"},
+	{'nvim-treesitter/nvim-treesitter-context', dependencies = { 'nvim-treesitter/nvim-treesitter' }},
 	{ 'simrat39/rust-tools.nvim', dependencies = { 'neovim/nvim-lspconfig' }, },
 	'timonv/vim-cargo', -- wrapped cargo commands. This will also configure make to use cargo 
 	{
@@ -68,6 +69,7 @@ local plugins = {
 	'tommcdo/vim-fugitive-blame-ext', -- on the blame window from fugitive show the commit message of the current line
 	'tpope/vim-rhubarb', -- configures :GBrowse to open GitHub in browser
 	-- debugging
+	{ "jay-babu/mason-nvim-dap.nvim", dependencies = {"williamboman/mason.nvim", "mfussenegger/nvim-dap",} },
 	{ "rcarriga/nvim-dap-ui", dependencies = { "mfussenegger/nvim-dap" } }, -- debugger
 	-- other
 	'ThePrimeagen/vim-be-good', -- game to get better with vim motions
