@@ -69,7 +69,8 @@ local plugins = {
 	'tommcdo/vim-fugitive-blame-ext', -- on the blame window from fugitive show the commit message of the current line
 	'tpope/vim-rhubarb', -- configures :GBrowse to open GitHub in browser
 	-- debugging
-	{ "jay-babu/mason-nvim-dap.nvim", dependencies = {"williamboman/mason.nvim", "mfussenegger/nvim-dap",} },
+	{ "jay-babu/mason-nvim-dap.nvim", dependencies = { 'williamboman/mason.nvim', 'mfussenegger/nvim-dap' } },
+	{ "mfussenegger/nvim-dap" }, -- debugger
 	{ "rcarriga/nvim-dap-ui", dependencies = { "mfussenegger/nvim-dap" } }, -- debugger
 	-- other
 	'ThePrimeagen/vim-be-good', -- game to get better with vim motions

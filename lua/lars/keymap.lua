@@ -17,7 +17,7 @@ vim.keymap.set('n', '<leader>mr', ':wa<CR>:make run<CR>', {}) -- todo make speci
 vim.keymap.set('n', '<leader>n', ':cnext<CR>', {})
 vim.keymap.set('n', '<leader>N', ':cprev<CR>', {})
 
-vim.keymap.set('n', '<leader>s', ':e ~/.config/nvim/<CR>', {})
+vim.keymap.set('n', '<leader>s', ':e ' .. vim.fn.stdpath('config') .. '<CR>', {})
 vim.keymap.set('n', '<leader>y', '"+y', {})
 vim.keymap.set('n', '<leader>p', '"+p', {})
 
