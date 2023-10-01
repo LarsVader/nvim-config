@@ -40,5 +40,4 @@ vim.keymap.set('n', '<leader>fr', builtin.resume, {})
 vim.keymap.set('n', '<leader>fc', builtin.git_commits, {})
 vim.keymap.set('n', '<leader>ffc', builtin.git_bcommits, {})
 vim.keymap.set('n', '<leader>fb', builtin.git_branches, {})
-vim.keymap.set('n', '<leader>ft', builtin.colorscheme, {})
 

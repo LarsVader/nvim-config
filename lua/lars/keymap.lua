@@ -3,7 +3,12 @@ vim.g.camelcasemotion_key = "<leader>"
 
 vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>', { silent = true })
 -- vim.keymap.set('n', '<leader>e', vim.cmd.Ex, {})
-vim.keymap.set('n', '<leader>fe', ':edit .<CR>', {})
+vim.keymap.set('n', '<leader>fe', function ()
+	require('oil').open(vim.fn.expand('%:h'))
+end, {})
+vim.keymap.set('n', '<leader>tt', ':NvimTreeToggle <CR>', {})
+vim.keymap.set('n', '<leader>tf', ':NvimTreeFindFile <CR>', {})
+vim.keymap.set('n', '<leader>tc', ':NvimTreeCollapse <CR>', {})
 vim.keymap.set('n', '<c-d>', '<c-d>zz', {})
 vim.keymap.set('n', '<c-u>', '<c-u>zz', {})
 
@@ -13,18 +18,40 @@ vim.keymap.set('n', '<leader>bg', '<c-w>l:only<CR>', {})
 vim.keymap.set('n', '<leader>gd', ':G diff<CR>:only<CR>', {})
 vim.keymap.set('n', '<leader>gl', ':G log<CR>:only<CR>', {})
 vim.keymap.set('n', '<leader>gf', ':Gdiffsplit<CR>', {})
-vim.keymap.set('n', '<leader>mr', ':wa<CR>:make run<CR>', {}) -- todo make specific for rust.
 vim.keymap.set('n', '<leader>n', ':cnext<CR>', {})
 vim.keymap.set('n', '<leader>N', ':cprev<CR>', {})
 
-vim.keymap.set('n', '<leader>s', ':e ' .. vim.fn.stdpath('config') .. '<CR>', {})
-vim.keymap.set('n', '<leader>y', '"+y', {})
-vim.keymap.set('n', '<leader>p', '"+p', {})
+vim.keymap.set('n', '<leader>s', function ()
+
+    if vim.api.nvim_win_get_config(0).relative ~= '' then
+		require('oil').open(vim.fn.expand('%:h'))
+		return
+	end
+
+	local buf = vim.api.nvim_create_buf(false, true)
+	local columns = vim.api.nvim_get_option('columns')
+	local lines = vim.api.nvim_get_option('lines')
+	vim.api.nvim_open_win(buf, true, {
+		relative='editor',
+		row=1,
+		col=2,
+		width=columns - 4,
+		height=lines - 6,
+		border='single',
+	})
+	require('oil').open(vim.fn.stdpath('config'))
+end, {})
+
+vim.keymap.set({'n', 'v'}, '<leader>y', '"*y', {})
+vim.keymap.set({'n', 'v'}, '<leader>p', '"+p', {})
 
 vim.keymap.set('n', '<c-h>', ':SidewaysLeft<cr>', {})
 vim.keymap.set('n', '<c-l>', ':SidewaysRight<cr>', {})
 
--- todo most of these are the example from :help dap.txt
+vim.keymap.set('n', '<leader>rr', [[:! for /F "TOKENS=1,2,*" \%a in ('tasklist /FI "IMAGENAME eq WpfApp2.exe"') do set MyPID=\%b<cr>]], {})
+
+
+-- t do most of these are the example from :help dap.txt
 -- some do not work and must be tweaked
 vim.keymap.set('n', '<F5>', function() require('dap').continue() end)
 vim.keymap.set('n', '<F10>', function() require('dap').step_over() end)

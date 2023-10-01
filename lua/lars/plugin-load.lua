@@ -1,5 +1,4 @@
-local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
-if not vim.loop.fs_stat(lazypath) then
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim" if not vim.loop.fs_stat(lazypath) then
 	vim.fn.system({
 		"git",
 		"clone",
@@ -19,6 +18,16 @@ local plugins = {
 	{ 'nvim-telescope/telescope.nvim', tag = '0.1.2', dependencies = { 'nvim-lua/plenary.nvim', } }, -- fuzzy finder :)
 	{ 'stevearc/oil.nvim', dependencies = { "nvim-tree/nvim-web-devicons" }, }, -- file explorer that can be edited like a vim buffer
 	{ 'ThePrimeagen/harpoon', dependencies = { 'nvim-lua/plenary.nvim' } }, -- pin buffers and jump to them fast
+	{ 'ggandor/leap.nvim'},
+	{
+		"nvim-tree/nvim-tree.lua",
+		version = "*",
+		lazy = false,
+		dependencies = { "nvim-tree/nvim-web-devicons", },
+		config = function()
+			require("nvim-tree").setup {}
+		end,
+	},
 	-- ui
 	"folke/tokyonight.nvim",
 	'EdenEast/nightfox.nvim',
@@ -74,6 +83,7 @@ local plugins = {
 	{ "rcarriga/nvim-dap-ui", dependencies = { "mfussenegger/nvim-dap" } }, -- debugger
 	-- other
 	'ThePrimeagen/vim-be-good', -- game to get better with vim motions
+	'tpope/vim-dispatch',
 }
 
 require("lazy").setup(plugins)
