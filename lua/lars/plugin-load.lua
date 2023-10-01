@@ -83,6 +83,7 @@ local plugins = {
 	{ "rcarriga/nvim-dap-ui", dependencies = { "mfussenegger/nvim-dap" } }, -- debugger
 	-- other
 	'ThePrimeagen/vim-be-good', -- game to get better with vim motions
+	{ 'serenevoid/kiwi.nvim', dependencies = { 'nvim-lua/plenary.nvim' } },
 	'tpope/vim-dispatch',
 }
 

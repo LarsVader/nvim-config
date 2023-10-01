@@ -36,7 +36,7 @@ require('nvim-treesitter.configs').setup {
   ensure_installed = { 'cpp', 'lua', 'rust', 'javascript', 'vimdoc', 'vim' },
 
   -- Autoinstall languages that are not installed. Defaults to false (but you can change for yourself!)
-  auto_install = true,
+  -- auto_install = true, -- this causes error in windows because of no c compiler installed
 
   highlight = { enable = true },
   indent = { enable = true },
