@@ -1,3 +1,25 @@
+local open_settings = function (subpath)
+	subpath = subpath or ''
+	if vim.api.nvim_win_get_config(0).relative ~= '' then
+		require('oil').open(vim.fn.stdpath('config') .. subpath)
+		return
+	end
+
+	local buf = vim.api.nvim_create_buf(false, true)
+	local columns = vim.api.nvim_get_option('columns')
+	local lines = vim.api.nvim_get_option('lines')
+	vim.api.nvim_open_win(buf, true, {
+		relative='editor',
+		row=1,
+		col=2,
+		width=columns - 4,
+		height=lines - 6,
+		border='single',
+		zindex=5,
+	})
+	require('oil').open(vim.fn.stdpath('config') .. subpath)
+end
+
 return {
 	{
 		'stevearc/oil.nvim',
@@ -33,28 +55,10 @@ return {
 		},
 		keys = {
 			{ '<leader>fe', function () require('oil').open(vim.fn.expand('%:h')) end, desc='oil file explorer' },
-			{ '<leader>s', function ()
-				if vim.api.nvim_win_get_config(0).relative ~= '' then
-					require('oil').open(vim.fn.expand('%:h'))
-					return
-				end
-
-				local buf = vim.api.nvim_create_buf(false, true)
-				local columns = vim.api.nvim_get_option('columns')
-				local lines = vim.api.nvim_get_option('lines')
-				vim.api.nvim_open_win(buf, true, {
-					relative='editor',
-					row=1,
-					col=2,
-					width=columns - 4,
-					height=lines - 6,
-					border='single',
-					zindex=5,
-				})
-				require('oil').open(vim.fn.stdpath('config'))
-				end,
-				desc = 'open nvim config in float window with oil file explorer'
-			}
+			{ '<leader>ss', function() open_settings() end, desc = 'open settings'},
+			{ '<leader>sk', function() open_settings('/lua/lars/keymaps') end, desc = 'open keymap settings'},
+			{ '<leader>sl', function() open_settings('/lua/lars') end, desc = 'open global settings'},
+			{ '<leader>sp', function() open_settings('/lua/plugins') end, desc = 'open keymap settings'},
 		}
 	}
 }

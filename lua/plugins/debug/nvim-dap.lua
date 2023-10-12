@@ -38,14 +38,51 @@ return {
 				}
 			}
 
+			local function get_dll()
+				return coroutine.create(function(dap_run_co)
+					local items= vim.fn.globpath(vim.fn.getcwd(), 'DentalCAD/DentalCADApp/bin/x64/**/**/DentalCADApp.exe', 0,1)
+					local opts = {
+						format_item = function(path)
+							return path -- vim.fn.fnamemodify(path, ':.')
+						end,
+					}
+					local function cont(choice)
+						if choice == nil then
+							return nil
+						else
+							coroutine.resume(dap_run_co, choice)
+						end
+					end
+
+					vim.ui.select(items, opts, cont)
+				end)
+			end
+
+			local function get_pid()
+				return coroutine.create(function(luaisstrange)
+					local function cont(choice)
+						if choice == nil then
+							return nil
+						else
+							coroutine.resume(luaisstrange, choice)
+						end
+					end
+					vim.ui.input({}, cont)
+				end)
+			end
+
 			dap.configurations.cs = {
 				{
 					type = "coreclr",
 					name = "launch - netcoredbg",
 					request = "launch",
-					program = function()
-						return vim.fn.input('Path to dll', vim.fn.getcwd() .. '/bin/Debug/', 'file')
-					end,
+					program = get_dll(),
+				},
+				{
+					type = "coreclr",
+					name = "attach - netcoredbg",
+					request = "attach",
+					processId = get_pid(),
 				},
 			}
 
@@ -60,6 +97,14 @@ return {
 					cwd = '${workspaceFolder}',
 					stopOnEntry = false,
 				},
+				{
+					name = 'Attach',
+					type = 'codelldb',
+					request = 'attach',
+					pid = get_pid(),
+					cwd = '${workdspaceFolder}',
+					stopOnEntry = false,
+				}
 			}
 
 			dap.configurations.c = dap.configurations.cpp
