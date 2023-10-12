@@ -5,12 +5,17 @@ return {
 		lazy = true,
 		dependencies = { "nvim-tree/nvim-web-devicons", },
 		config = function()
-			require("nvim-tree").setup {}
-			vim.keymap.set('n', '<leader>tc', ':NvimTreeCollapse <CR>', { desc='collapse all folder in file tree view' })
+			require("nvim-tree").setup ({
+				view = {
+					width = {},
+					relativenumber = true,
+				}
+			})
+			vim.keymap.set('n', '<leader>tc', '<cmd>NvimTreeCollapse <CR>', { desc='collapse all folder in file tree view' })
 		end,
 		keys = {
-			{ '<leader>te', ':NvimTreeToggle <CR>:setlocal relativenumber<CR>', desc='toggle explorer'},
-			{ '<leader>ts', ':NvimTreeFindFileToggle <CR>:setlocal relativenumber<CR>', desc='tree search current file'},
+			{ '<leader>te', '<cmd>NvimTreeToggle <CR>', desc='toggle explorer'},
+			{ '<leader>ts', '<cmd>NvimTreeFindFileToggle <CR>', desc='tree search current file'},
 		}
 	},
 }
