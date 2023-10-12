@@ -1,3 +1,8 @@
+function SplitFilename(strFilename)
+  -- Returns the Path, Filename, and Extension as 3 values
+  return string.match(strFilename, "(.-)([^\\]-([^\\%.]+))$")
+end
+
 return {
 	{
 		-- make fuzzy finder fast
@@ -20,17 +25,24 @@ return {
 				}
 			},
 			defaults = {
-				file_ignore_patterns = { "tags", },
+				file_ignore_patterns = { "tags", "Jenkins*", "_customer", ".*bat", "DentalDB", ".vs", ".*pdb", ".*lib", ".*dll", "_intermediate", "WorkParamsDB", },
+				path_display = function(opts, path)
+						local spath,file,extension = SplitFilename(path)
+						spath = string.gsub(spath, 'DentalProcessorControls', 'DPC')
+						spath = string.gsub(spath, 'DentalProcessors', 'DP')
+						spath = string.gsub(spath, 'DentalConstruction', 'DC')
+						spath = string.gsub(spath, 'DentalCAD', 'DC')
+						spath = string.gsub(spath, 'DentalBase', 'DB')
+						return string.format("%s (%s)", file, spath)
+					end,
 			},
 			pickers = {
 				find_files = {
 					find_command = { "rg", "--files", "--hidden", "--glob", "!**/.git/*", "--no-ignore", },
-					-- find_command = {
-					-- 	"rg",
-					-- 	"--files",
-					-- 	"--glob",
-					-- },
-				}
+				},
+				git_files = {
+					recurse_submodules = true,
+				},
 			}
 		},
 		keys = {
@@ -43,7 +55,20 @@ return {
 			{ '<leader>fr', function () require('telescope.builtin').resume() end, desc='telescope repeat last search'},
 			{ '<leader>fl', function () require('telescope.builtin').git_commits() end, desc='teslescope fuzzy find git commits'},
 			{ '<leader>fc', function () require('telescope.builtin').git_bcommits() end, desc='telescope fuzzy find branch commits'},
-			{ '<leader>fb', function () require('telescope.builtin').git_branches() end, desc='telescope fuzzy find branch'},
+			{
+				'<leader>fb',
+				function ()
+					local selection = vim.fn.input("select submodule\n 1: dentalcaddevelopment\n 2: dentalconfig\n 3: dentalbase \n dentalcad otherwise\n")
+					if selection == '1' then
+						require('telescope.builtin').git_branches()
+					elseif selection == '2' then
+						require('telescope.builtin').git_branches({cwd = "./dentalcad/dentalconfig/"})
+					elseif selection == '3' then
+						require('telescope.builtin').git_branches({cwd = "./dentalbase/"})
+					else
+						require('telescope.builtin').git_branches({cwd = "./dentalcad"})
+					end
+				end , desc='telescope fuzzy find branch'},
 		}
 	}, -- fuzzy finder :)
 }
