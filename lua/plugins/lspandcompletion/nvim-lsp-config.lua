@@ -2,7 +2,7 @@ local capabilities = require('cmp_nvim_lsp').default_capabilities()
 return {
 	{
 		'neovim/nvim-lspconfig',
-		dependencies = { 'williamboman/mason.nvim' },
+		dependencies = { 'williamboman/mason.nvim', "folke/neodev.nvim" },
 		ft = { 'rust', 'c', 'cpp', 'cs', 'toml', 'lua' },
 		init = function ()
 			vim.keymap.set('n', 'gl', vim.diagnostic.open_float)
