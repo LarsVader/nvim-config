@@ -1,7 +1,7 @@
 return {
 	{
 		'tpope/vim-dispatch',
-		cmd = { 'Dispatch', 'Make', 'Start'},
+		cmd = { 'Dispatch', 'Make', 'Start', 'AbortDispatch', },
 		keys = {
 			{ 'm<CR>', desc='call make dispatched' },
 			{ 'm<Space>', desc='prepare a call to make dispatched' },
