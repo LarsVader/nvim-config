@@ -14,6 +14,8 @@ vim.opt.guifont= "nerd-fonts" -- icons of eg lualine do not work without. Font n
 vim.opt.ignorecase = true
 vim.opt.smartcase = true -- if search term contains upper case letters use case sensitive search
 vim.opt.wrap = false
+vim.opt.swapfile = false
+vim.opt.guifont = "CaskayDiaCove NFM"
 
 vim.diagnostic.config {
   virtual_text = false,
@@ -24,7 +26,7 @@ vim.diagnostic.config {
 vim.g.editorconfig = false
 
 if vim.g.neovide then
-	vim.g.neovide_transparency = 0.8
+	vim.g.neovide_transparency = 0.85
 	vim.g.neovide_scale_factor = 0.7
 	local change_scale_factor = function(delta)
 		vim.g.neovide_scale_factor = vim.g.neovide_scale_factor * delta
