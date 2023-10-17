@@ -1,6 +1,10 @@
 return {
 	{
 		"mfussenegger/nvim-dap",
+		dependencies = { 'williamboman/mason.nvim' },
+		build = {
+			':MasonInstall netcoredbg',
+		},
 		lazy = true,
 		keys = {
 			{'<F5>', function() require('dap').continue() end},

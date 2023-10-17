@@ -4,6 +4,11 @@ return {
 		'neovim/nvim-lspconfig',
 		dependencies = { 'williamboman/mason.nvim', "folke/neodev.nvim" },
 		ft = { 'rust', 'c', 'cpp', 'cs', 'toml', 'lua' },
+		build = {
+			':MasonInstall csharp-language-server',
+			':MasonInstall lua-language-server',
+			':MasonInstall rust-analyzer',
+		},
 		init = function ()
 			vim.keymap.set('n', 'gl', vim.diagnostic.open_float)
 			vim.keymap.set('n', 'dn', vim.diagnostic.goto_prev)

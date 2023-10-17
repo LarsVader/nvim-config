@@ -1,11 +1,12 @@
 return {
 	{
 		"nvim-treesitter/nvim-treesitter", build = ":TSUpdate",
+		enabled = true,
 		config = function()
 			require('nvim-treesitter.configs').setup {
-				ensure_installed = { 'cpp', 'lua', 'rust', 'javascript', 'vimdoc', 'vim' },
+				ensure_installed = { 'c_sharp', 'cpp', 'lua', 'vimdoc', 'vim' },
 				sync_install = false,
-				auto_install = false, -- this causes error in windows because of no c compiler installed
+				auto_install = true, -- this causes error in windows because of no c compiler installed
 				ignore_install = {},
 				highlight = { enable = true },
 				indent = { enable = true },
