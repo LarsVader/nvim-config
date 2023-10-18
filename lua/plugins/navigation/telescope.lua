@@ -35,6 +35,10 @@ return {
 						spath = string.gsub(spath, 'DentalBase', 'DB')
 						return string.format("%s (%s)", file, spath)
 					end,
+				layout_config = { 
+					height = 0.95,
+					width = 0.95,
+				},
 			},
 			pickers = {
 				find_files = {
@@ -68,7 +72,23 @@ return {
 					else
 						require('telescope.builtin').git_branches({cwd = "./dentalcad"})
 					end
-				end , desc='telescope fuzzy find branch'},
+				end , desc='telescope fuzzy find branch'
+			},
+			{
+				'<leader>fz',
+				function ()
+					local selection = vim.fn.input("select submodule\n 1: dentalcaddevelopment\n 2: dentalconfig\n 3: dentalbase \n dentalcad otherwise\n")
+					if selection == '1' then
+						require('telescope.builtin').git_stash()
+					elseif selection == '2' then
+						require('telescope.builtin').git_stash({cwd = "./dentalcad/dentalconfig/"})
+					elseif selection == '3' then
+						require('telescope.builtin').git_stash({cwd = "./dentalbase/"})
+					else
+						require('telescope.builtin').git_stash({cwd = "./dentalcad"})
+					end
+				end , desc='telescope fuzzy find branch'
+			},
 		}
 	}, -- fuzzy finder :)
 }
