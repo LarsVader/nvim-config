@@ -12,10 +12,11 @@ return {
 				}
 			})
 			vim.keymap.set('n', '<leader>tc', '<cmd>NvimTreeCollapse <CR>', { desc='collapse all folder in file tree view' })
+			vim.keymap.set('n', '<leader>tq', '<cmd>NvimTreeClose <CR>', { desc='Close NvimTree' })
 		end,
 		keys = {
-			{ '<leader>te', '<cmd>NvimTreeToggle <CR>', desc='toggle explorer'},
-			{ '<leader>ts', '<cmd>NvimTreeFindFileToggle <CR>', desc='tree search current file'},
+			{ '<leader>te', '<cmd>NvimTreeOpen <CR>', desc='open NvimTree'},
+			{ '<leader>ts', '<cmd>NvimTreeFindFile <CR>', desc='tree search current file'},
 		}
 	},
 }
