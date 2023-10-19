@@ -58,7 +58,21 @@ return {
 			{ '<leader>fu', function () require('telescope.builtin').buffers() end, desc='telescope fuzzy find buffer'},
 			{ '<leader>fh', function () require('telescope.builtin').help_tags() end, desc='telescope fuzzy help search'},
 			{ '<leader>fr', function () require('telescope.builtin').resume() end, desc='telescope repeat last search'},
-			{ '<leader>fl', function () require('telescope.builtin').git_commits() end, desc='teslescope fuzzy find git commits'},
+			{
+				'<leader>fl',
+				function ()
+					local selection = vim.fn.input("select submodule\n 1: dentalcaddevelopment\n 2: dentalconfig\n 3: dentalbase \n dentalcad otherwise\n")
+					if selection == '1' then
+						require('telescope.builtin').git_commits()
+					elseif selection == '2' then
+						require('telescope.builtin').git_commits({cwd = "./dentalcad/dentalconfig/"})
+					elseif selection == '3' then
+						require('telescope.builtin').git_commits({cwd = "./dentalbase/"})
+					else
+						require('telescope.builtin').git_commits({cwd = "./dentalcad"})
+					end
+				end , desc='teslescope fuzzy find git commits'
+			},
 			{ '<leader>fc', function () require('telescope.builtin').git_bcommits() end, desc='telescope fuzzy find branch commits'},
 			{
 				'<leader>fb',
