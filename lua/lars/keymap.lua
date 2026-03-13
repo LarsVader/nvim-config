@@ -11,4 +11,9 @@ vim.keymap.set({'n', 'v'}, '<leader>y', '"*y', {})
 vim.keymap.set({'n', 'v'}, '<leader>p', '"+p', {})
 vim.keymap.set({'n', 'v'}, 'p', 'p==', {})
 
+vim.keymap.set({'i'}, '<C-c>', '<ESC>u', { desc="leave insert mode and undo"})
+
 -- vim.keymap.set('n', '<leader>rr', [[:! for /F "TOKENS=1,2,*" \%a in ('tasklist /FI "IMAGENAME eq WpfApp2.exe"') do set MyPID=\%b<cr>]], {})
+
+-- vim.keymap.set({'n', 'v'}, '<leader>mr', [[<cmd>compiler msbuild<cr><cmd>Make /p:target=x64 && "WpfApp2/bin/Debug/net6.0-windows/WpfApp2"<CR>]], {})
+vim.keymap.set({'n', 'v'}, '<leader>ml', [[<cmd>compiler dotnet<cr><cmd>Make "\Lofwyr"<CR>]], {})

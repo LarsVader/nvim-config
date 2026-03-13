@@ -3,7 +3,7 @@ return {
 		"nvim-treesitter/nvim-treesitter", build = ":TSUpdate",
 		config = function()
 			require('nvim-treesitter.configs').setup {
-				ensure_installed = { 'cpp', 'lua', 'rust', 'javascript', 'vimdoc', 'vim' },
+				ensure_installed = { 'cpp', 'rust', 'javascript', 'vimdoc', 'vim' },
 				sync_install = false,
 				auto_install = false, -- this causes error in windows because of no c compiler installed
 				ignore_install = {},

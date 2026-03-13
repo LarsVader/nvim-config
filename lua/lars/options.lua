@@ -13,3 +13,17 @@ vim.opt.termguicolors = true
 vim.opt.guifont= "nerd-fonts" -- icons of eg lualine do not work without. Font needs to be installed on system
 vim.opt.ignorecase = true
 vim.opt.smartcase = true -- if search term contains upper case letters use case sensitive search
+
+
+if vim.g.neovide then
+	vim.g.neovide_scale_factor = 0.8
+	local change_scale_factor = function(delta)
+		vim.g.neovide_scale_factor = vim.g.neovide_scale_factor * delta
+	end
+	vim.keymap.set("n", "<C-=>", function()
+		change_scale_factor(1.25)
+	end)
+	vim.keymap.set("n", "<C-->", function()
+		change_scale_factor(1/1.25)
+	end)
+end
