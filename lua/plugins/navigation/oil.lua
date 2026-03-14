@@ -55,9 +55,9 @@ return {
 		},
 		keys = {
 			{ '<leader>fe', function () require('oil').open(vim.fn.expand('%:h')) end, desc='oil file explorer' },
-			{ '<leader>ss', function () oil_settings() end, },
-			{ '<leader>sp', function () oil_settings('/lua/plugins') end, },
-			{ '<leader>sl', function () oil_settings('/lua/lars') end, },
+			{ '<leader>ss', function () oil_settings() end, desc = "Open nvim config root in oil" },
+			{ '<leader>sp', function () oil_settings('/lua/plugins') end, desc = "Open plugins dir in oil" },
+			{ '<leader>sl', function () oil_settings('/lua/lars') end, desc = "Open lars dir in oil" },
 		}
 	}
 }

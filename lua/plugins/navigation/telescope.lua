@@ -7,7 +7,6 @@ return {
 	},
 	{
 		'nvim-telescope/telescope.nvim',
-		tag = '0.1.2',
 		dependencies = { 'nvim-lua/plenary.nvim', 'nvim-telescope/telescope-fzf-native.nvim' },
 		opts = {
 			extensions = {
@@ -44,6 +43,59 @@ return {
 			{ '<leader>fl', function () require('telescope.builtin').git_commits() end, desc='teslescope fuzzy find git commits'},
 			{ '<leader>fc', function () require('telescope.builtin').git_bcommits() end, desc='telescope fuzzy find branch commits'},
 			{ '<leader>fb', function () require('telescope.builtin').git_branches() end, desc='telescope fuzzy find branch'},
+		{ '<leader>fk', function()
+			local actions     = require('telescope.actions')
+			local action_state = require('telescope.actions.state')
+			local pickers     = require('telescope.pickers')
+			local finders     = require('telescope.finders')
+			local keymaps = {}
+			for _, mode in ipairs({ 'n', 'v', 'i', 'x', 'o', 't' }) do
+				for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
+					local desc = km.desc or ''
+					local rhs  = type(km.rhs) == 'string' and km.rhs or ''
+					if desc ~= '' or rhs ~= '' then
+						table.insert(keymaps, {
+							mode    = mode,
+							lhs     = km.lhs or '',
+							desc    = desc ~= '' and desc or rhs,
+						})
+					end
+				end
+			end
+
+			pickers.new({}, {
+				prompt_title = "Keymaps",
+				finder = finders.new_table({
+					results = keymaps,
+					entry_maker = function(km)
+						return {
+							value   = km,
+							display = string.format("%-2s  %-22s  %s", km.mode, km.lhs, km.desc),
+							ordinal = km.mode .. ' ' .. km.lhs .. ' ' .. km.desc,
+						}
+					end,
+				}),
+				sorter = require('telescope.sorters').Sorter:new({
+					scoring_function = function(_, prompt, line)
+						if not prompt or prompt == '' then return 1 end
+						return string.find(string.lower(line), string.lower(prompt), 1, true) and 1 or -1
+					end,
+				}),
+				attach_mappings = function(prompt_bufnr)
+					actions.select_default:replace(function()
+						local sel = action_state.get_selected_entry()
+						actions.close(prompt_bufnr)
+						if sel then
+							vim.schedule(function()
+								local keys = vim.api.nvim_replace_termcodes(sel.value.lhs, true, false, true)
+								vim.api.nvim_feedkeys(keys, 'm', false)
+							end)
+						end
+					end)
+					return true
+				end,
+			}):find()
+		end, desc = "Search keymaps" },
 		}
 	}, -- fuzzy finder :)
 }

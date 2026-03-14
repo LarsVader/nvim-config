@@ -4,35 +4,15 @@ return {
 		'neovim/nvim-lspconfig',
 		dependencies = { 'williamboman/mason.nvim', "folke/neodev.nvim"},
 		ft = { 'rust', 'c', 'cpp', 'cs', 'toml', 'lua' },
-		-- event = { "BufReadPre", "BufNewFile" }, -- <<< this ensures the plugin loads for all files
-		lazy = false,
 		init = function ()
-			vim.keymap.set('n', 'gl', vim.diagnostic.open_float)
-			vim.keymap.set('n', 'dn', vim.diagnostic.goto_prev)
-			vim.keymap.set('n', 'dN', vim.diagnostic.goto_next)
-			vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist)
+			vim.keymap.set('n', 'gl', vim.diagnostic.open_float, { desc = "Show line diagnostics" })
+			vim.keymap.set('n', 'dn', vim.diagnostic.goto_prev, { desc = "Previous diagnostic" })
+			vim.keymap.set('n', 'dN', vim.diagnostic.goto_next, { desc = "Next diagnostic" })
+			vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = "Send diagnostics to location list" })
 		end,
 		config = function ()
-
-			local root_file = vim.fs.find(
-				function(name)
-					return name == ".sln" or name == ".git"
-				end,
-				{ upward = true, type = "file", stop = vim.loop.os_homedir() }
-			)
-			local root_dir = vim.fs.dirname(root_file[1]);
-
 			vim.lsp.config('omnisharp', {
-				-- cmd = { "omnisharp" },
-			 	-- filetypes = { "cs", },
 				root_markers = { '.git', '.csproj', '.sln' },
-				-- root_dir = root_dir,
-			 -- 	init_options = {
-				-- 	AutomaticWorkspaceInit = true
-				-- },
-			 -- 	on_attach = function(client, bufnr)
-			 -- 		print("C# LSP attached")
-			 -- 	end,
 			})
 			vim.lsp.enable('omnisharp')
 

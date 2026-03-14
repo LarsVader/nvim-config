@@ -3,15 +3,15 @@ return {
 		"mfussenegger/nvim-dap",
 		lazy = true,
 		keys = {
-			{'<F5>', function() require('dap').continue() end},
-			{'<F10>', function() require('dap').step_over() end},
-			{'<F11>', function() require('dap').step_into() end},
-			{'<F12>', function() require('dap').step_out() end},
-			{'<Leader>db', function() require('dap').toggle_breakpoint() end},
-			{'<Leader>dB', function() require('dap').set_breakpoint() end},
-			{'<Leader>dlb', function() require('dap').set_breakpoint(nil, nil, vim.fn.input('Log point message: ')) end},
-			{'<Leader>dr', function() require('dap').repl.open() end},
-			{'<Leader>dl', function() require('dap').run_last() end},
+			{'<F5>', function() require('dap').continue() end, desc = "DAP continue"},
+			{'<F10>', function() require('dap').step_over() end, desc = "DAP step over"},
+			{'<F11>', function() require('dap').step_into() end, desc = "DAP step into"},
+			{'<F12>', function() require('dap').step_out() end, desc = "DAP step out"},
+			{'<Leader>db', function() require('dap').toggle_breakpoint() end, desc = "DAP toggle breakpoint"},
+			{'<Leader>dB', function() require('dap').set_breakpoint() end, desc = "DAP set conditional breakpoint"},
+			{'<Leader>dlb', function() require('dap').set_breakpoint(nil, nil, vim.fn.input('Log point message: ')) end, desc = "DAP set log point"},
+			{'<Leader>dr', function() require('dap').repl.open() end, desc = "DAP open REPL"},
+			{'<Leader>dl', function() require('dap').run_last() end, desc = "DAP re-run last session"},
 		},
 		config = function()
 
@@ -24,8 +24,7 @@ return {
 				args = {'--interpreter=vscode'}
 			}
 
-			local extension_path = vim.env.HOME .. '/.vscode/extensions/vadimcn.vscode-lldb-1.9.2/'
-			local codelldb_path = extension_path .. 'adapter/codelldb'
+			local codelldb_path = masonpath .. '/packages/codelldb/extension/adapter/codelldb'
 
 			dap.adapters.codelldb = {
 				type = 'server',
@@ -67,18 +66,18 @@ return {
 
 			vim.keymap.set({'n', 'v'}, '<Leader>dh', function()
 				require('dap.ui.widgets').hover()
-			end)
+			end, { desc = "DAP hover value" })
 			vim.keymap.set({'n', 'v'}, '<Leader>dp', function()
 				require('dap.ui.widgets').preview()
-			end)
+			end, { desc = "DAP preview value" })
 			vim.keymap.set('n', '<Leader>df', function()
 				local widgets = require('dap.ui.widgets')
 				widgets.centered_float(widgets.frames)
-			end)
+			end, { desc = "DAP show stack frames" })
 			vim.keymap.set('n', '<Leader>ds', function()
 				local widgets = require('dap.ui.widgets')
 				widgets.centered_float(widgets.scopes)
-			end)
+			end, { desc = "DAP show scopes" })
 		end
 	}
 }

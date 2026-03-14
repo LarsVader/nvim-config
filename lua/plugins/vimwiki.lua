@@ -9,10 +9,10 @@ return {
 			}
 		},
 		keys = {
-			{'<leader>vw', function () require('kiwi').open_wiki_index() end , {}},
-			{'<leader>vd', function () require('kiwi').open_diary_index() end, {}},
-			{'<leader>vn', function () require('kiwi').open_diary_new() end, {}},
-			{'<leader-x>', function () require('kiwi').todo.toggle() end, {}},
+			{'<leader>vw', function () require('kiwi').open_wiki_index() end, desc = "Open wiki index"},
+			{'<leader>vd', function () require('kiwi').open_diary_index() end, desc = "Open diary index"},
+			{'<leader>vn', function () require('kiwi').open_diary_new() end, desc = "New diary entry for today"},
+			{'<leader>x', function () require('kiwi').todo.toggle() end, desc = "Toggle todo checkbox"},
 		}
 	},
 }

@@ -5,4 +5,5 @@ return {
 	{ import = 'plugins/sourcecontrol' },
 	{ import = 'plugins/debug' },
 	{ import = 'plugins/ui' },
+	{ import = 'plugins/ai' },
 }
