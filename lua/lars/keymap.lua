@@ -15,6 +15,11 @@ vim.keymap.set({'i'}, '<C-c>', '<ESC>u', { desc = "Leave insert mode and undo" }
 
 vim.keymap.set({'n', 'v'}, '<leader>ml', [[<cmd>compiler dotnet<cr><cmd>Make "\Lofwyr"<CR>]], { desc = "dotnet Make Lofwyr" })
 
+-- Alternate file navigation (test <-> source, view/page <-> viewmodel)
+local alt = require('lars.alternate')
+vim.keymap.set('n', '<leader>jt', alt.goto_test_or_source,   { desc = 'Alternate: test ↔ source' })
+vim.keymap.set('n', '<leader>jv', alt.goto_view_or_viewmodel, { desc = 'Alternate: view/page ↔ viewmodel' })
+
 -- Terminal mode: exit and window navigation
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 vim.keymap.set('t', '<C-w>h', '<C-\\><C-n><C-w>h', { desc = 'Terminal: move left' })

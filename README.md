@@ -17,6 +17,7 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 - [Wiki](#wiki)
 - [Build / Dispatch](#build--dispatch)
 - [AI / Claude Code](#ai--claude-code)
+- [Testing](#testing)
 - [Neovide](#neovide)
 - [Plugin List](#plugin-list)
 
@@ -64,6 +65,8 @@ Global keymaps defined in `lua/lars/keymap.lua`.
 | `p` | n/v | Paste and auto-indent |
 | `<C-c>` | i | Leave insert mode and undo |
 | `<leader>ml` | n/v | `dotnet Make \Lofwyr` (project-specific) |
+| `<leader>jt` | n | Alternate: jump between test file and source file |
+| `<leader>jv` | n | Alternate: jump between View/Page and ViewModel |
 
 **Editor settings** (`lua/lars/options.lua`):
 - Relative + absolute line numbers
@@ -351,17 +354,14 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 ## AI / Claude Code
 
 > `lua/plugins/ai/claudecode.lua`
-> Powered by [claudecode.nvim](https://github.com/coder/claudecode.nvim). Implements the same WebSocket MCP protocol as the official VS Code extension — Claude Code connects to Neovim and gains full editor access (file ops, cursor position, diffs).
+> Powered by [claude-code.nvim](https://github.com/greggh/claude-code.nvim). Terminal-based Claude Code integration with auto-refresh when Claude modifies files.
 
 | Key | Mode | Description |
 |-----|------|-------------|
-| `<leader>ac` | n | Toggle Claude terminal |
-| `<leader>af` | n | Focus Claude |
+| `<C-,>` | n,t | Toggle Claude terminal |
 | `<leader>ar` | n | Resume last session |
-| `<leader>ab` | n | Add current buffer to context |
 | `<leader>as` | v | Send visual selection to Claude |
-| `<leader>aa` | n | Accept diff |
-| `<leader>ad` | n | Deny diff |
+| `<leader>ad` | n | View Claude diff |
 
 ---
 
@@ -380,6 +380,35 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 | `r` | Recent files |
 | `k` | Browse keymaps |
 | `q` | Quit |
+
+---
+
+## Testing
+
+> `tests/` — Automated test suite using [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) busted runner.
+> Catches keymap regressions, plugin API breakage, and config drift.
+
+**Run all tests:**
+
+```sh
+cd ~/AppData/Local/nvim
+bash tests/run_all.sh
+```
+
+**Run a single spec file:**
+
+```sh
+nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('tests/keymap_spec.lua')"
+```
+
+| Spec file | Tests | What it verifies |
+|-----------|-------|-----------------|
+| `keymap_spec.lua` | 20 | Global keymaps (keymap.lua + LSP diagnostics) |
+| `plugin_keymap_spec.lua` | 53 | Plugin keymaps (Telescope, Harpoon, DAP, etc.) |
+| `options_spec.lua` | 14 | Editor options (tabstop, scrolloff, etc.) |
+| `alternate_spec.lua` | 7 | Test/source and View/Page/ViewModel navigation logic |
+| `behavior_spec.lua` | 3 | Feedkeys behavioral tests (yank, quickfix, scroll) |
+| `plugin_smoke_spec.lua` | 15 | Plugin load + API smoke tests |
 
 ---
 
@@ -434,5 +463,5 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 | [vim-dispatch](https://github.com/tpope/vim-dispatch) | Async build/run commands |
 | [himalaya-vim](https://git.sr.ht/~soywod/himalaya-vim) | Email client (`:Himalaya`) |
 | [VimBeGood](https://github.com/ThePrimeagen/vim-be-good) | Vim motion practice (`:VimBeGood`) |
-| [claudecode.nvim](https://github.com/coder/claudecode.nvim) | Claude Code IDE integration |
+| [claude-code.nvim](https://github.com/greggh/claude-code.nvim) | Claude Code IDE integration |
 | [alpha-nvim](https://github.com/goolord/alpha-nvim) | Dashboard / start screen |

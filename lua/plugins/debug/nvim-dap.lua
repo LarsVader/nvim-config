@@ -17,6 +17,7 @@ return {
 
 			local masonpath = vim.fn.stdpath('data') .. '/mason';
 			local dap = require('dap');
+			dap.set_log_level('TRACE');
 
 			dap.adapters.coreclr = {
 				type = 'executable',
@@ -37,13 +38,211 @@ return {
 				}
 			}
 
+			-- Cache the resolved DLL path so both `program` and
+			-- `cwd` use the same value without running globs twice.
+			local cs_dll_cache = nil
+
+			-- Returns the best .NET DLL to debug, or nil if none
+			-- found. Uses shallow fixed-depth globs (not **) to
+			-- stay fast on Windows .NET trees with large
+			-- bin/obj/.git directories.
+			-- Covers two output layouts:
+			--   Standard:  bin/Debug/{tfm}/Name.dll
+			--   WinUI/SDK: bin/{Platform}/Debug/{tfm}/Name.dll
+			local function find_cs_dll()
+				local cwd = vim.fn.getcwd():gsub('\\', '/')
+				-- Depth 1-3 only — never recurses into bin/obj/.git
+				local csprojs = {}
+				for _, pat in ipairs({
+					'/*.csproj',
+					'/*/*.csproj',
+					'/*/*/*.csproj',
+				}) do
+					for _, p in ipairs(vim.fn.glob(
+						cwd .. pat, false, true)) do
+						table.insert(csprojs, p)
+					end
+				end
+				local dlls = {}
+				for _, csproj in ipairs(csprojs) do
+					local name = vim.fn.fnamemodify(
+						csproj, ':t:r')
+					-- Skip test projects (*.Tests / *.Test)
+					if not name:match('Tests?$') then
+						local dir = vim.fn.fnamemodify(
+							csproj, ':h'):gsub('\\', '/')
+						-- Standard:  bin/Debug/{tfm}/
+						-- WinUI/SDK: bin/{platform}/Debug/{tfm}/
+						for _, pat in ipairs({
+							dir .. '/bin/Debug/*/'
+								.. name .. '.dll',
+							dir .. '/bin/*/Debug/*/'
+								.. name .. '.dll',
+						}) do
+							for _, d in ipairs(
+								vim.fn.glob(pat, false, true)) do
+								table.insert(dlls, d)
+							end
+						end
+					end
+				end
+				-- Fall back to Release / any config
+				if #dlls == 0 then
+					for _, csproj in ipairs(csprojs) do
+						local name = vim.fn.fnamemodify(
+							csproj, ':t:r')
+						if not name:match('Tests?$') then
+							local dir = vim.fn.fnamemodify(
+								csproj, ':h'):gsub('\\', '/')
+							for _, pat in ipairs({
+								dir .. '/bin/*/*/'
+									.. name .. '.dll',
+								dir .. '/bin/*/*/*/'
+									.. name .. '.dll',
+							}) do
+								for _, d in ipairs(
+									vim.fn.glob(
+										pat, false, true)) do
+									table.insert(dlls, d)
+								end
+							end
+						end
+					end
+				end
+				if #dlls == 0 then
+					return nil
+				end
+				-- Auto-pick newest — no blocking UI
+				-- in dap coroutine
+				table.sort(dlls, function(a, b)
+					return vim.fn.getftime(a)
+						> vim.fn.getftime(b)
+				end)
+				return dlls[1]
+			end
+
+			-- Detect WinUI: check if the output dir
+			-- contains Windows App SDK bootstrapper DLLs.
+			local function is_winui(dll_path)
+				if not dll_path then
+					return false
+				end
+				local dir = vim.fn.fnamemodify(
+					dll_path, ':h'):gsub('\\', '/')
+				local marker = vim.fn.glob(
+					dir .. '/Microsoft.WindowsAppRuntime'
+						.. '.Bootstrap*.dll',
+					false, true)
+				return #marker > 0
+			end
+
+			-- Find PID of a running process by image name.
+			-- Returns the first match or nil.
+			local function find_pid(image_name)
+				local h = io.popen(
+					'tasklist /FI "IMAGENAME eq '
+					.. image_name
+					.. '" /FO CSV /NH 2>NUL')
+				if not h then
+					return nil
+				end
+				local out = h:read('*a')
+				h:close()
+				for pid in out:gmatch(
+					'"[^"]-","(%d+)"') do
+					return tonumber(pid)
+				end
+				return nil
+			end
+
 			dap.configurations.cs = {
+				-- Normal .NET apps (console, ASP.NET, etc.)
 				{
 					type = "coreclr",
 					name = "launch - netcoredbg",
 					request = "launch",
 					program = function()
-						return vim.fn.input('Path to dll', vim.fn.getcwd() .. '/bin/Debug/', 'file')
+						cs_dll_cache = find_cs_dll()
+						if cs_dll_cache then
+							return cs_dll_cache
+						end
+						vim.notify(
+							'No .NET DLL found'
+								.. ' — build first.',
+							vim.log.levels.WARN)
+						return vim.fn.input(
+							'Path to dll: ',
+							vim.fn.getcwd()
+								.. '/bin/Debug/',
+							'file')
+					end,
+					-- Set cwd to the DLL's output dir so
+					-- self-contained runtime DLLs are found.
+					cwd = function()
+						local dll = cs_dll_cache
+							or find_cs_dll()
+						if dll then
+							return vim.fn.fnamemodify(
+								dll, ':h')
+						end
+						return vim.fn.getcwd()
+					end,
+				},
+				-- WinUI / Windows App SDK apps: must launch
+				-- the native .exe host then attach, because
+				-- netcoredbg cannot launch WinUI apps via
+				-- `dotnet exec` (the bootstrap is native).
+				{
+					type = "coreclr",
+					name = "launch & attach - WinUI",
+					request = "attach",
+					processId = function()
+						local dll = cs_dll_cache
+							or find_cs_dll()
+						if not dll then
+							vim.notify(
+								'No .NET output found'
+									.. ' — build first.',
+								vim.log.levels.WARN)
+							return require('dap.utils')
+								.pick_process()
+						end
+						local exe = dll:gsub(
+							'%.dll$', '.exe')
+						if vim.fn.filereadable(exe) ~= 1 then
+							vim.notify(
+								'No .exe found next to '
+									.. dll,
+								vim.log.levels.WARN)
+							return require('dap.utils')
+								.pick_process()
+						end
+						local img = vim.fn.fnamemodify(
+							exe, ':t')
+						-- Kill leftover instance if any
+						local old = find_pid(img)
+						if old then
+							os.execute(
+								'taskkill /PID '
+								.. old .. ' /F >NUL 2>&1')
+							vim.wait(500)
+						end
+						-- Launch the native exe host
+						vim.fn.jobstart(
+							{ exe },
+							{ detach = true })
+						-- Give it time to start .NET runtime
+						vim.wait(2000)
+						local pid = find_pid(img)
+						if pid then
+							return pid
+						end
+						vim.notify(
+							'Could not find running '
+								.. img,
+							vim.log.levels.WARN)
+						return require('dap.utils')
+							.pick_process()
 					end,
 				},
 			}
