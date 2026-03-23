@@ -19,13 +19,14 @@ return {
 				"",
 			}
 
-			-- Buttons
+			-- Buttons (use require() so Telescope gets lazy-loaded on first use)
 			dashboard.section.buttons.val = {
-				dashboard.button("f", "  Find file",      "<cmd>Telescope find_files<cr>"),
-				dashboard.button("g", "  Live grep",      "<cmd>Telescope live_grep<cr>"),
-				dashboard.button("r", "  Recent files",   "<cmd>Telescope oldfiles<cr>"),
-				dashboard.button("k", "  Keymaps",        "<cmd>Telescope keymaps<cr>"),
-				dashboard.button("q", "  Quit",           "<cmd>qa<cr>"),
+				dashboard.button("f", "  Find file",         "<cmd>lua require('telescope.builtin').find_files()<cr>"),
+				dashboard.button("g", "  Live grep",         "<cmd>lua require('telescope.builtin').live_grep()<cr>"),
+				dashboard.button("r", "  Recent files",      "<cmd>lua require('telescope.builtin').oldfiles()<cr>"),
+				dashboard.button("p", "  Recent projects",   "<cmd>lua require('lars.pick-project')()<cr>"),
+				dashboard.button("k", "  Keymaps",           "<cmd>lua require('telescope.builtin').keymaps()<cr>"),
+				dashboard.button("q", "  Quit",              "<cmd>qa<cr>"),
 			}
 
 			-- Cheat sheet footer
