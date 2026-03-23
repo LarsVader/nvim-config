@@ -75,6 +75,7 @@ Global keymaps defined in `lua/lars/keymap.lua`.
 - Persistent undo (survives closing and reopening files)
 - `scrolloff = 8` (cursor stays 8 lines from top/bottom)
 - Spell checking enabled
+- Word-boundary line wrapping (`linebreak`) — no mid-word breaks
 - Nerd Fonts required for icons
 
 ---
@@ -465,3 +466,4 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 | [VimBeGood](https://github.com/ThePrimeagen/vim-be-good) | Vim motion practice (`:VimBeGood`) |
 | [claude-code.nvim](https://github.com/greggh/claude-code.nvim) | Claude Code IDE integration |
 | [alpha-nvim](https://github.com/goolord/alpha-nvim) | Dashboard / start screen |
+| [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) | Visual markdown rendering (headings, lists, tables, etc.) |
