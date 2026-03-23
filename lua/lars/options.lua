@@ -13,6 +13,7 @@ vim.opt.termguicolors = true
 vim.opt.guifont= "nerd-fonts" -- icons of eg lualine do not work without. Font needs to be installed on system
 vim.opt.ignorecase = true
 vim.opt.smartcase = true -- if search term contains upper case letters use case sensitive search
+vim.opt.linebreak = true -- wrap at word boundaries, not mid-word
 
 
 if vim.g.neovide then
