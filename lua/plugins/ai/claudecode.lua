@@ -21,7 +21,7 @@ return {
         },
         keys = {
             { '<C-,>', '<cmd>ClaudeCode<cr>',           desc = 'Toggle Claude' },
-            { '<leader>ar', '<cmd>ClaudeCode --resume<cr>',  desc = 'Resume Claude' },
+            { '<leader>ar', '<cmd>ClaudeCodeResume<cr>',  desc = 'Resume Claude' },
             { '<leader>as', '<cmd>ClaudeCodeSend<cr>',       mode = 'v', desc = 'Send selection to Claude' },
             { '<leader>ad', '<cmd>ClaudeCodeDiff<cr>',       desc = 'View Claude diff' },
         },
