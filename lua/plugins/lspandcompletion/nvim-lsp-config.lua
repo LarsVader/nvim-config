@@ -3,19 +3,16 @@ return {
 	{
 		'neovim/nvim-lspconfig',
 		dependencies = { 'williamboman/mason.nvim', "folke/neodev.nvim"},
-		ft = { 'rust', 'c', 'cpp', 'cs', 'toml', 'lua' },
+		ft = { 'rust', 'c', 'cpp', 'toml', 'lua' },
 		init = function ()
 			vim.keymap.set('n', 'gl', vim.diagnostic.open_float, { desc = "Show line diagnostics" })
 			vim.keymap.set('n', 'dn', vim.diagnostic.goto_prev, { desc = "Previous diagnostic" })
 			vim.keymap.set('n', 'dN', vim.diagnostic.goto_next, { desc = "Next diagnostic" })
 			vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = "Send diagnostics to location list" })
-		end,
-		config = function ()
-			vim.lsp.config('omnisharp', {
-				root_markers = { '.git', '.csproj', '.sln' },
-			})
-			vim.lsp.enable('omnisharp')
 
+			-- LspAttach keymaps — registered eagerly so they apply to ALL
+			-- LSP servers (lspconfig, roslyn.nvim, etc.), not just the ones
+			-- managed by nvim-lspconfig.
 			vim.api.nvim_create_autocmd('LspAttach', {
 				group = vim.api.nvim_create_augroup('UserLspConfig', {}),
 				callback = function(ev)
@@ -34,6 +31,29 @@ return {
 						end, { desc='autoformat current file', buffer=ev.buf })
 				end,
 			})
+		end,
+		config = function ()
+			local lspconfig = require('lspconfig')
+
+			-- Lazy-load race fix: this config runs in response to a FileType
+			-- event, but lspconfig.setup() registers its own FileType autocmd
+			-- which missed the event that triggered us. Re-attach for any
+			-- buffers that already have a matching filetype.
+			local function reattach_buffers()
+				for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+					if vim.api.nvim_buf_is_loaded(buf) then
+						local ft = vim.bo[buf].filetype
+						if ft ~= "" then
+							vim.api.nvim_exec_autocmds("FileType", { buffer = buf })
+						end
+					end
+				end
+			end
+
+			-- Add lspconfig.setup() calls for non-Roslyn servers here
+			-- (Roslyn/C# is handled by roslyn.nvim)
+
+			reattach_buffers()
 		end,
 	}
 }

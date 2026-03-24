@@ -167,8 +167,8 @@ Global keymaps defined in `lua/lars/keymap.lua`.
 ## LSP
 
 > `lua/plugins/lspandcompletion/nvim-lsp-config.lua`
-> Active for: `rust`, `c`, `cpp`, `cs` (C#), `toml`, `lua`
-> C# uses OmniSharp, detected via `.git`, `.csproj`, or `.sln` root markers.
+> Active for: `rust`, `c`, `cpp`, `toml`, `lua`
+> C# uses Roslyn LSP via `roslyn.nvim` (separate plugin, auto-detects `.sln`/`.csproj`).
 
 **Buffer-local keymaps (active when LSP is attached):**
 
@@ -410,6 +410,21 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 | `alternate_spec.lua` | 7 | Test/source and View/Page/ViewModel navigation logic |
 | `behavior_spec.lua` | 3 | Feedkeys behavioral tests (yank, quickfix, scroll) |
 | `plugin_smoke_spec.lua` | 15 | Plugin load + API smoke tests |
+| `dispatch_notify_spec.lua` | — | Dispatch/notify-based test coverage |
+
+**LSP integration tests** (separate runner — needs event loop, ~60s per server):
+
+```sh
+cd ~/AppData/Local/nvim
+bash tests/run_lsp.sh
+```
+
+Tests that each configured LSP server starts, attaches to a fixture file, and initialises.
+Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
+
+| Server | Fixture | Timeout |
+|--------|---------|---------|
+| roslyn | `tests/fixtures/cs/Test.cs` | 60s |
 
 ---
 
@@ -442,7 +457,7 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 | [LuaSnip](https://github.com/L3MON4D3/LuaSnip) | Snippet engine |
 | [neodev.nvim](https://github.com/folke/neodev.nvim) | Neovim Lua API completion |
 | [crates.nvim](https://github.com/saecki/crates.nvim) | Cargo.toml dependency completion |
-| [omnisharp-extended-lsp](https://github.com/Hoffs/omnisharp-extended-lsp.nvim) | C# OmniSharp extensions |
+| [roslyn.nvim](https://github.com/seblyng/roslyn.nvim) | C# Roslyn LSP (replaces OmniSharp) |
 | [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) | Syntax parsing and highlighting |
 | [nvim-treesitter-context](https://github.com/nvim-treesitter/nvim-treesitter-context) | Show current scope at top of window |
 | [nvim-dap](https://github.com/mfussenegger/nvim-dap) | Debug adapter protocol |

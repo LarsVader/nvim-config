@@ -23,7 +23,21 @@ return {
 			{ '`<Space>', desc='prepare calling a shell command dispatched' },
 		},
 		config = function()
+			local notify = require("lars.dispatch-notify")
+
 			vim.api.nvim_create_user_command("Make", function(opts)
+				notify.show("Make " .. opts.args, {
+					is_running = function()
+						-- dispatch#completed(0) returns 1 when the
+						-- most recent request has finished
+						local ok, done = pcall(vim.fn["dispatch#completed"], 0)
+						if ok and done == 1 then
+							return false
+						end
+						return true
+					end,
+					poll_interval = 300,
+				})
 				local result = vim.fn["dispatch#compile_command"](
 					opts.bang and 1 or 0,
 					"-- " .. opts.args,

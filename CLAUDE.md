@@ -48,9 +48,25 @@ return {
 ## Language Support
 
 - **Rust**: rust-tools, crates.nvim
-- **C#**: omnisharp-extended-lsp, netcoredbg debug adapter
+- **C#**: roslyn.nvim (Roslyn LSP via Mason), netcoredbg debug adapter
 - **C/C++**: codelldb debug adapter
 - **Lua**: neodev.nvim (for Neovim API completion)
+
+## Testing
+
+After any config change, run the relevant spec files individually (do NOT use `run_all.sh` — it hangs on Windows):
+
+```sh
+nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('tests/<spec>.lua')"
+```
+
+**LSP integration tests** are separate (need event loop, ~60s timeout per server):
+
+```sh
+cd ~/AppData/Local/nvim && bash tests/run_lsp.sh
+```
+
+Run LSP tests after changes to `lspandcompletion/` files, Mason packages, or .NET SDK updates.
 
 ## Notable Keymaps
 
