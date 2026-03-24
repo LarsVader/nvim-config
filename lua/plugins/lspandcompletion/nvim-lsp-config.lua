@@ -23,7 +23,7 @@ return {
 					vim.keymap.set('n', '<C-k>', vim.lsp.buf.signature_help, { desc='hover signature help', buffer=ev.buf  })
 					vim.keymap.set('n', 'gt', vim.lsp.buf.type_definition, { desc='goto type definition', buffer=ev.buf  })
 					vim.keymap.set('n', '<F2>', vim.lsp.buf.rename, { desc='refactor rename', buffer=ev.buf  })
-					vim.keymap.set({ 'n', 'v' }, '<C-space>', vim.lsp.buf.code_action, { desc='show code actions', buffer=ev.buf  })
+					vim.keymap.set({ 'n', 'v' }, '<C-.>', vim.lsp.buf.code_action, { desc='show code actions', buffer=ev.buf  })
 					vim.keymap.set('n', 'gr', vim.lsp.buf.references, { desc='list references', buffer=ev.buf })
 					vim.keymap.set('n', '<F3>',
 						function()

@@ -182,8 +182,21 @@ Global keymaps defined in `lua/lars/keymap.lua`.
 | `K` | n | Hover documentation |
 | `<C-k>` | n | Signature help |
 | `<F2>` | n | Rename symbol |
-| `<C-space>` | n/v | Code actions |
+| `<C-.>` | n/v | Code actions |
 | `<F3>` | n | Format file (async) |
+
+> **Windows Terminal**: `<C-.>` requires a custom keybinding to send the correct
+> escape sequence. Add the following to Windows Terminal's `settings.json`
+> (`Ctrl+Shift+,` to open):
+>
+> In `"actions"`:
+> ```json
+> { "command": { "action": "sendInput", "input": "\u001b[46;5u" }, "id": "User.sendInput.ctrlDot" }
+> ```
+> In `"keybindings"`:
+> ```json
+> { "id": "User.sendInput.ctrlDot", "keys": "ctrl+." }
+> ```
 
 **Diagnostics (always active):**
 
