@@ -17,7 +17,8 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 - [Wiki](#wiki)
 - [Build / Dispatch](#build--dispatch)
 - [AI / Claude Code](#ai--claude-code)
-- [Testing](#testing)
+- [Testing / Coverage](#testing--coverage)
+- [Automated Tests](#automated-tests)
 - [Neovide](#neovide)
 - [Plugin List](#plugin-list)
 
@@ -397,7 +398,36 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 
 ---
 
-## Testing
+## Testing / Coverage
+
+### Neotest — Test Explorer
+
+> `lua/plugins/testing/neotest.lua`
+> Test runner and explorer with tree-view panel. Uses neotest-dotnet adapter for C#/xUnit.
+
+| Key | Description |
+|-----|-------------|
+| `<leader>tn` | Run nearest test |
+| `<leader>tf` | Run current test file |
+| `<leader>ta` | Run all tests |
+| `<leader>to` | Toggle test output panel |
+| `<leader>tp` | Toggle test summary (tree view) |
+| `<leader>tl` | Re-run last test |
+
+### nvim-coverage — Code Coverage
+
+> `lua/plugins/testing/nvim-coverage.lua`
+> Displays code coverage as gutter signs. Reads Cobertura XML from `dotnet test --collect:"XPlat Code Coverage"`.
+
+| Key | Description |
+|-----|-------------|
+| `<leader>tC` | Toggle coverage signs |
+| `<leader>tL` | Load coverage data |
+| `<leader>tS` | Coverage summary |
+
+---
+
+## Automated Tests
 
 > `tests/` — Automated test suite using [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) busted runner.
 > Catches keymap regressions, plugin API breakage, and config drift.
@@ -418,11 +448,11 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 | Spec file | Tests | What it verifies |
 |-----------|-------|-----------------|
 | `keymap_spec.lua` | 20 | Global keymaps (keymap.lua + LSP diagnostics) |
-| `plugin_keymap_spec.lua` | 53 | Plugin keymaps (Telescope, Harpoon, DAP, etc.) |
+| `plugin_keymap_spec.lua` | 62 | Plugin keymaps (Telescope, Harpoon, DAP, etc.) |
 | `options_spec.lua` | 14 | Editor options (tabstop, scrolloff, etc.) |
 | `alternate_spec.lua` | 7 | Test/source and View/Page/ViewModel navigation logic |
 | `behavior_spec.lua` | 3 | Feedkeys behavioral tests (yank, quickfix, scroll) |
-| `plugin_smoke_spec.lua` | 15 | Plugin load + API smoke tests |
+| `plugin_smoke_spec.lua` | 24 | Plugin load + API smoke tests |
 | `dispatch_notify_spec.lua` | — | Dispatch/notify-based test coverage |
 
 **LSP integration tests** (separate runner — needs event loop, ~60s per server):
@@ -490,8 +520,10 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim) | Status line |
 | [kiwi.nvim](https://github.com/serenevoid/kiwi.nvim) | Wiki / diary |
 | [vim-dispatch](https://github.com/tpope/vim-dispatch) | Async build/run commands |
-| [himalaya-vim](https://git.sr.ht/~soywod/himalaya-vim) | Email client (`:Himalaya`) |
 | [VimBeGood](https://github.com/ThePrimeagen/vim-be-good) | Vim motion practice (`:VimBeGood`) |
 | [claude-code.nvim](https://github.com/greggh/claude-code.nvim) | Claude Code IDE integration |
+| [neotest](https://github.com/nvim-neotest/neotest) | Test runner and explorer |
+| [neotest-dotnet](https://github.com/Issafalcon/neotest-dotnet) | .NET/xUnit adapter for neotest |
+| [nvim-coverage](https://github.com/andythigpen/nvim-coverage) | Code coverage gutter signs |
 | [alpha-nvim](https://github.com/goolord/alpha-nvim) | Dashboard / start screen |
 | [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) | Visual markdown rendering (headings, lists, tables, etc.) |
