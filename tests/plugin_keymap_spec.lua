@@ -135,6 +135,35 @@ describe("plugin keymaps", function()
         end
     end)
 
+    describe("neotest", function()
+        local keys = {
+            { "<leader>tn", "run nearest" },
+            { "<leader>tf", "run file" },
+            { "<leader>ta", "run all" },
+            { "<leader>to", "toggle output" },
+            { "<leader>tp", "toggle summary" },
+            { "<leader>tl", "run last" },
+        }
+        for _, k in ipairs(keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
+            end)
+        end
+    end)
+
+    describe("nvim-coverage", function()
+        local keys = {
+            { "<leader>tC", "toggle coverage" },
+            { "<leader>tL", "load coverage" },
+            { "<leader>tS", "coverage summary" },
+        }
+        for _, k in ipairs(keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
+            end)
+        end
+    end)
+
     describe("claude-code", function()
         local keys = {
             { "<C-,>", "toggle" },

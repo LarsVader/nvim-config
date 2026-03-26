@@ -6,4 +6,5 @@ return {
 	{ import = 'plugins/debug' },
 	{ import = 'plugins/ui' },
 	{ import = 'plugins/ai' },
+	{ import = 'plugins/testing' },
 }
