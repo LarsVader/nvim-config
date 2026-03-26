@@ -31,7 +31,11 @@ local function find_file(name)
         end
         return nil
     end
-    return search(vim.fn.getcwd())
+    local result = search(vim.fn.getcwd())
+    if result then
+        return result:gsub("/", "\\")
+    end
+    return nil
 end
 
 -- Toggle between test file and source file under test
