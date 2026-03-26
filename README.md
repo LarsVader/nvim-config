@@ -274,7 +274,7 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 
 | Key | Description |
 |-----|-------------|
-| `<leader>gs` | Git status (fullscreen) |
+| `<leader>gs` | Git status (90% floating window) |
 | `<leader>gb` | Git blame — hover over a line to see its commit message |
 | `<leader>gd` | Git diff (fullscreen) |
 | `<leader>gm` | Git diff split (side-by-side) |
