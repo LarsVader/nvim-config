@@ -3,7 +3,7 @@ return {
 		"rcarriga/nvim-dap-ui",
 		dependencies = { "mfussenegger/nvim-dap" },
 		keys = {
-			{'du', function() require("dapui").open() end, desc = "Toggle DAP UI"},
+			{'du', function() require("dapui").toggle() end, desc = "Toggle DAP UI"},
 		},
 		config = function ()
 			local dap = require('dap')

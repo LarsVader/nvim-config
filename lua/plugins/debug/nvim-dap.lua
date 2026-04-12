@@ -1,3 +1,5 @@
+local _mixed_debug -- set by config(), called by lazy key
+
 return {
 	{
 		"mfussenegger/nvim-dap",
@@ -12,6 +14,10 @@ return {
 			{'<Leader>dlb', function() require('dap').set_breakpoint(nil, nil, vim.fn.input('Log point message: ')) end, desc = "DAP set log point"},
 			{'<Leader>dr', function() require('dap').repl.open() end, desc = "DAP open REPL"},
 			{'<Leader>dl', function() require('dap').run_last() end, desc = "DAP re-run last session"},
+			{'<Leader>dM', function()
+				require('dap')
+				if _mixed_debug then _mixed_debug() end
+			end, desc = "DAP mixed C#/C++ debug"},
 		},
 		config = function()
 
@@ -23,6 +29,17 @@ return {
 				type = 'executable',
 				command = masonpath .. '/packages/netcoredbg/netcoredbg/netcoredbg.exe',
 				args = {'--interpreter=vscode'}
+			}
+
+			-- Set to true to use local dev build instead of Mason-installed version
+			local mixdbg_dev = false
+			dap.adapters.mixdbg = {
+				type = 'executable',
+				command = mixdbg_dev
+					and 'D:/Lars/Dokumente/coding/CLRApp3'
+						.. '/mixdbg/src/bin/Debug'
+						.. '/net10.0/win-x64/MixDbg.exe'
+					or masonpath .. '/packages/mixdbg/MixDbg.exe',
 			}
 
 			local codelldb_path = masonpath .. '/packages/codelldb/extension/adapter/codelldb'
@@ -253,15 +270,196 @@ return {
 					type = "codelldb",
 					request = "launch",
 					program = function()
-						return vim.fn.input('Path to executable: ', vim.fn.getcwd() .. '/', 'file')
+						return vim.fn.input(
+							'Path to executable: ',
+							vim.fn.getcwd() .. '/',
+							'file')
 					end,
 					cwd = '${workspaceFolder}',
 					stopOnEntry = false,
 				},
+				{
+					name = "Attach to process",
+					type = "codelldb",
+					request = "attach",
+					pid = function()
+						return require('dap.utils')
+							.pick_process()
+					end,
+				},
+				{
+					name = "Launch & attach - .NET native",
+					type = "codelldb",
+					request = "attach",
+					pid = function()
+						-- Find the .NET exe the same way
+						-- the C# config finds the DLL.
+						local dll = find_cs_dll()
+						if not dll then
+							vim.notify(
+								'No .NET DLL found'
+									.. ' — build first.',
+								vim.log.levels.WARN)
+							return require('dap.utils')
+								.pick_process()
+						end
+						local exe = dll:gsub(
+							'%.dll$', '.exe')
+						if vim.fn.filereadable(exe) ~= 1
+						then
+							vim.notify(
+								'No .exe found next to '
+									.. dll,
+								vim.log.levels.WARN)
+							return require('dap.utils')
+								.pick_process()
+						end
+						local img = vim.fn.fnamemodify(
+							exe, ':t')
+						-- Kill leftover instance
+						local old = find_pid(img)
+						if old then
+							os.execute(
+								'taskkill /PID '
+								.. old
+								.. ' /F >NUL 2>&1')
+							vim.wait(500)
+						end
+						-- Launch the app
+						vim.fn.jobstart(
+							{ exe },
+							{ detach = true })
+						vim.wait(2000)
+						local pid = find_pid(img)
+						if pid then
+							return pid
+						end
+						vim.notify(
+							'Could not find running '
+								.. img,
+							vim.log.levels.WARN)
+						return require('dap.utils')
+							.pick_process()
+					end,
+				},
 			}
+
+			-- Also register mixdbg config for C# files
+			-- so it appears in the picker for both languages.
+			local mixdbg_config = {
+				name = "Mixed C#/C++ (mixdbg)",
+				type = "mixdbg",
+				request = "launch",
+				program = function()
+					local dll = find_cs_dll()
+					if dll then
+						return dll:gsub('%.dll$', '.exe')
+					end
+					return vim.fn.input(
+						'Path to executable: ',
+						vim.fn.getcwd() .. '/',
+						'file')
+				end,
+				cwd = function()
+					local dll = find_cs_dll()
+					if dll then
+						return vim.fn.fnamemodify(
+							dll, ':h')
+					end
+					return vim.fn.getcwd()
+				end,
+			}
+			table.insert(dap.configurations.cpp, mixdbg_config)
+			table.insert(dap.configurations.cs, mixdbg_config)
 
 			dap.configurations.c = dap.configurations.cpp
 			dap.configurations.rust = dap.configurations.cpp
+
+			-- Launch .NET app and attach a debugger.
+			-- Windows only allows one debug port holder,
+			-- so C# and C++ must be separate sessions.
+			-- This picker lets you choose which layer to
+			-- debug without leaving Neovim.
+			local function launch_mixed_debug()
+				local dll = find_cs_dll()
+				if not dll then
+					vim.notify(
+						'No .NET DLL found'
+							.. ' — build first.',
+						vim.log.levels.WARN)
+					return
+				end
+				local exe = dll:gsub(
+					'%.dll$', '.exe')
+				if vim.fn.filereadable(exe) ~= 1 then
+					vim.notify(
+						'No .exe found next to '
+							.. dll,
+						vim.log.levels.WARN)
+					return
+				end
+				local img = vim.fn.fnamemodify(
+					exe, ':t')
+				vim.ui.select(
+					{ 'C# (.NET)', 'C++ (native)' },
+					{ prompt = 'Debug layer: ' },
+					function(choice)
+						if not choice then return end
+						-- Terminate existing session
+						if dap.session() then
+							dap.terminate()
+							vim.wait(1000)
+						end
+						-- Kill leftover app instance
+						local old = find_pid(img)
+						if old then
+							os.execute(
+								'taskkill /PID '
+								.. old
+								.. ' /F >NUL 2>&1')
+							vim.wait(500)
+						end
+						-- Launch the app
+						vim.fn.jobstart(
+							{ exe },
+							{ detach = true })
+						vim.wait(2000)
+						local pid = find_pid(img)
+						if not pid then
+							vim.notify(
+								'Could not find '
+								.. img,
+								vim.log.levels.WARN)
+							return
+						end
+						if choice == 'C# (.NET)' then
+							dap.run({
+								type = "coreclr",
+								name = "C# (.NET)",
+								request = "attach",
+								processId = pid,
+							})
+						else
+							dap.run({
+								type = "codelldb",
+								name = "C++ (native)",
+								request = "attach",
+								pid = pid,
+								sourceLanguages = {
+									"cpp", "c",
+								},
+							})
+						end
+					end)
+			end
+
+			_mixed_debug = launch_mixed_debug
+
+			-- Force-load dapui when a session starts so its event
+			-- listeners are active, even if the UI isn't visible yet.
+			dap.listeners.after.event_initialized["load_dapui"] = function()
+				pcall(require, "dapui")
+			end
 
 			vim.keymap.set({'n', 'v'}, '<Leader>dh', function()
 				require('dap.ui.widgets').hover()
