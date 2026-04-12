@@ -31,6 +31,26 @@ return {
             local util = require("coverage.util")
             local cs_signs = require("coverage.signs")
 
+            local function file_belongs_to_cwd(path)
+                local cwd = vim.fn.getcwd():gsub("\\", "/")
+                    :gsub("/$", "")
+                local ok, lines = pcall(vim.fn.readfile, path)
+                if not ok then return false end
+                for _, line in ipairs(lines) do
+                    local src = line:match(
+                        "<source>(.-)</source>")
+                    if src then
+                        src = src:gsub("\\", "/")
+                            :gsub("/$", "")
+                        if src:find(cwd, 1, true)
+                            or cwd:find(src, 1, true) then
+                            return true
+                        end
+                    end
+                end
+                return false
+            end
+
             local function find_coverage_file()
                 local glob = vim.fn.glob(
                     "**/{TestResults,test*}/**/coverage.cobertura.xml",
@@ -49,7 +69,12 @@ return {
                     return vim.fn.getftime(a)
                         > vim.fn.getftime(b)
                 end)
-                return glob[1]
+                for _, f in ipairs(glob) do
+                    if file_belongs_to_cwd(f) then
+                        return f
+                    end
+                end
+                return nil
             end
 
             local function parse_cobertura(path)
