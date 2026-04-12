@@ -369,7 +369,9 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 ## AI / Claude Code
 
 > `lua/plugins/ai/claudecode.lua`
-> Powered by [claude-code.nvim](https://github.com/greggh/claude-code.nvim). Terminal-based Claude Code integration with auto-refresh when Claude modifies files.
+> Powered by [claude-code.nvim](https://github.com/greggh/claude-code.nvim). Terminal-based Claude Code integration.
+> Launched with `/LOW` priority and CPU affinity `0xE` (logical procs 1–3) via a `cmd /c start` wrapper, so Claude and all its child processes (builds, tests) leave one logical processor free for the rest of the system.
+> File-refresh polling is custom: every 5s via a libuv timer, plus on `BufEnter`/`FocusGained`, but only while the Claude terminal is NOT the currently focused window. This avoids a `:terminal` viewport-follows-cursor interaction that caused scroll-through-transcript jank on long conversations.
 
 | Key | Mode | Description |
 |-----|------|-------------|
@@ -377,6 +379,7 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 | `<leader>ar` | n | Resume last session |
 | `<leader>as` | v | Send visual selection to Claude |
 | `<leader>ad` | n | View Claude diff |
+| `<leader>ak` | n | Kill Claude terminal (force-delete buffer + job; for hangs) |
 
 ---
 

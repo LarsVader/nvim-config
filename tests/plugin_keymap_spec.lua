@@ -169,6 +169,7 @@ describe("plugin keymaps", function()
             { "<C-,>", "toggle" },
             { "<leader>ar", "resume" },
             { "<leader>ad", "diff" },
+            { "<leader>ak", "kill" },
         }
         for _, k in ipairs(keys) do
             it(k[1] .. " (" .. k[2] .. ")", function()
