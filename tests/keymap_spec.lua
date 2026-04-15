@@ -59,6 +59,26 @@ describe("global keymaps", function()
         end)
     end)
 
+    -- Fold keymaps (discoverable via <leader>fk)
+    describe("fold commands", function()
+        local fold_keys = {
+            { "za", "toggle fold" },
+            { "zc", "close fold" },
+            { "zo", "open fold" },
+            { "zM", "close all" },
+            { "zR", "open all" },
+            { "zm", "fold more" },
+            { "zr", "fold less" },
+        }
+        for _, fk in ipairs(fold_keys) do
+            it("fold " .. fk[1], function()
+                local km = h.find_keymap("n", fk[1])
+                assert.is_not_nil(km, fk[1] .. " not found")
+                assert.is_not_nil(km.desc:lower():find(fk[2]), "desc missing '" .. fk[2] .. "'")
+            end)
+        end
+    end)
+
     -- Insert mode keymaps
     describe("insert mode", function()
         it("exit insert and undo <C-c>", function()

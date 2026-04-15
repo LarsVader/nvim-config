@@ -56,4 +56,20 @@ describe("editor options", function()
     it("leader is space", function()
         assert.equals(" ", vim.g.mapleader, "mapleader should be space")
     end)
+
+    it("foldmethod = expr", function()
+        assert.equals("expr", vim.opt.foldmethod:get())
+    end)
+
+    it("foldexpr uses treesitter", function()
+        assert.equals("v:lua.vim.treesitter.foldexpr()", vim.opt.foldexpr:get())
+    end)
+
+    it("foldlevel = 99", function()
+        assert.equals(99, vim.opt.foldlevel:get())
+    end)
+
+    it("foldlevelstart = 99", function()
+        assert.equals(99, vim.opt.foldlevelstart:get())
+    end)
 end)

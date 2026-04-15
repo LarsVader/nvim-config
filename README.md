@@ -4,6 +4,8 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 
 **Leader key**: `Space`
 
+**All keymaps are searchable**: press `<Space>fk` to open the keymap finder (Telescope picker). Every keymap -- including fold commands, LSP actions, debug controls, and plugin shortcuts -- is discoverable there.
+
 ## Table of Contents
 
 - [Installation](#installation)
@@ -30,11 +32,11 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 
 | Dependency | Notes |
 |------------|-------|
-| [Neovim](https://neovim.io/) ≥ 0.9 | |
+| [Neovim](https://neovim.io/) >= 0.9 | |
 | [mingw64](https://winlibs.com/) | Required to build telescope-fzf-native |
-| [zig](https://ziglang.org/) *(auto-installed)* | Required to compile treesitter parsers. Auto-installed via `winget` on first Lazy build if no C compiler is found — restart Neovim after, then run `:Lazy build nvim-treesitter` |
+| [zig](https://ziglang.org/) *(auto-installed)* | Required to compile treesitter parsers. Auto-installed via `winget` on first Lazy build if no C compiler is found -- restart Neovim after, then run `:Lazy build nvim-treesitter` |
 | [CMake](https://cmake.org/) | |
-| [ripgrep](https://github.com/BurntSushi/ripgrep) | **Do not use the winget version** — it is broken. Use an alternative installation method. |
+| [ripgrep](https://github.com/BurntSushi/ripgrep) | **Do not use the winget version** -- it is broken. Use an alternative installation method. |
 | [Nerd Font: CaskaydiaCove NFM](https://www.nerdfonts.com/) | Required for icons in lualine and nvim-tree |
 | Visual Studio Build Tools 2022 or Visual Studio 2022 | Add these to `PATH`: |
 | | `msbuild.exe`: `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin` |
@@ -47,121 +49,52 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 git clone <repo-url> ~/AppData/Local/nvim
 ```
 
-Open Neovim — Lazy.nvim will bootstrap itself and install all plugins automatically.
+Open Neovim -- Lazy.nvim will bootstrap itself and install all plugins automatically.
 
 ---
 
 ## Editor
 
-Global keymaps defined in `lua/lars/keymap.lua`.
+> `lua/lars/keymap.lua` -- global keymaps
+> `lua/lars/options.lua` -- editor settings
 
-| Key | Mode | Description |
-|-----|------|-------------|
-| `<C-d>` | n | Scroll down half-page, keep cursor centered |
-| `<C-u>` | n | Scroll up half-page, keep cursor centered |
-| `<leader>n` | n | Next quickfix item |
-| `<leader>N` | n | Previous quickfix item |
-| `<leader>y` | n/v | Yank to system clipboard |
-| `<leader>p` | n/v | Paste from system clipboard |
-| `p` | n/v | Paste and auto-indent |
-| `<C-c>` | i | Leave insert mode and undo |
-| `<leader>ml` | n/v | `dotnet Make \Lofwyr` (project-specific) |
-| `<leader>jt` | n | Alternate: jump between test file and source file |
-| `<leader>jv` | n | Alternate: jump between View/Page and ViewModel |
-
-**Editor settings** (`lua/lars/options.lua`):
+**Editor settings:**
 - Relative + absolute line numbers
 - 4-space indentation (tabstop, softtabstop, shiftwidth)
 - Smart indent, smart case search
 - Persistent undo (survives closing and reopening files)
 - `scrolloff = 8` (cursor stays 8 lines from top/bottom)
 - Spell checking enabled
-- Word-boundary line wrapping (`linebreak`) — no mid-word breaks
+- Word-boundary line wrapping (`linebreak`) -- no mid-word breaks
 - Nerd Fonts required for icons
 
 ---
 
 ## Navigation
 
-### Telescope — Fuzzy Finder
+### Telescope -- Fuzzy Finder
 
 > `lua/plugins/navigation/telescope.lua`
 > Uses ripgrep for file search, FZF native for fast sorting, smart case matching.
 
-| Key | Description |
-|-----|-------------|
-| `<leader>ff` | Find files (all files, including hidden, excluding `.git`) |
-| `<C-p>` | Find git-tracked files only |
-| `<leader>fg` | Live grep (search string across project) |
-| `<leader>fs` | Grep string under cursor |
-| `<leader>fu` | List open buffers |
-| `<leader>fh` | Search help tags |
-| `<leader>fr` | Resume last search |
-| `<leader>fl` | Git commit log |
-| `<leader>fc` | Git commits for current buffer |
-| `<leader>fb` | Git branches |
-| `<leader>fk` | Search keymaps |
-
-### Harpoon — File Bookmarks
+### Harpoon -- File Bookmarks
 
 > `lua/plugins/navigation/harpoon.lua`
 > Pin frequently-used files and jump to them instantly.
 
-| Key | Description |
-|-----|-------------|
-| `<leader>ha` | Add current file to harpoon |
-| `<leader>hh` | Open harpoon quick menu |
-| `<leader>1` – `<leader>9` | Jump to harpoon file 1–9 |
-| `<leader>0` | Jump to harpoon file 0 |
-
-### nvim-tree — File Tree
+### nvim-tree -- File Tree
 
 > `lua/plugins/navigation/nvim-tree.lua`
 
-| Key | Description |
-|-----|-------------|
-| `<leader>te` | Toggle file tree |
-| `<leader>ts` | Reveal current file in tree |
-| `<leader>tc` | Collapse all folders |
-
-### Oil — File Browser
+### Oil -- File Browser
 
 > `lua/plugins/navigation/oil.lua`
 > Editable file browser that replaces netrw. Edit files and directories like a buffer.
 
-| Key | Description |
-|-----|-------------|
-| `<leader>fe` | Open oil in current file's directory |
-| `<leader>ss` | Open config root (`nvim/`) in oil |
-| `<leader>sp` | Open `lua/plugins/` in oil |
-| `<leader>sl` | Open `lua/lars/` in oil |
-
-**Inside an oil buffer:**
-
-| Key | Description |
-|-----|-------------|
-| `<CR>` | Open file / enter directory |
-| `-` | Go to parent directory |
-| `_` | Open in current working directory |
-| `` ` `` | `:cd` to this directory |
-| `~` | `:tcd` to this directory |
-| `<C-c>` | Close oil |
-| `<C-l>` | Refresh |
-| `g.` | Toggle hidden files |
-| `g?` | Show help |
-| `<leader>ev` | Open in vertical split |
-| `<leader>eh` | Open in horizontal split |
-| `<leader>et` | Open in new tab |
-| `<leader>ep` | Preview file |
-
-### Leap — Fast Motions
+### Leap -- Fast Motions
 
 > `lua/plugins/navigation/leap.lua`
 > Jump anywhere on screen with 2 keystrokes.
-
-| Key | Description |
-|-----|-------------|
-| `s` | Leap: type 2 chars to jump to any visible location across all windows |
 
 ---
 
@@ -171,22 +104,7 @@ Global keymaps defined in `lua/lars/keymap.lua`.
 > Active for: `rust`, `c`, `cpp`, `toml`, `lua`
 > C# uses Roslyn LSP via `roslyn.nvim` (separate plugin, auto-detects `.sln`/`.csproj`).
 
-**Buffer-local keymaps (active when LSP is attached):**
-
-| Key | Mode | Description |
-|-----|------|-------------|
-| `gd` | n | Go to definition |
-| `gD` | n | Go to declaration |
-| `gi` | n | Go to implementation |
-| `gt` | n | Go to type definition |
-| `gr` | n | List all references |
-| `K` | n | Hover documentation |
-| `<C-k>` | n | Signature help |
-| `<F2>` | n | Rename symbol |
-| `<C-.>` | n/v | Code actions |
-| `<F3>` | n | Format file (async) |
-
-> **Windows Terminal**: `<C-.>` requires a custom keybinding to send the correct
+> **Windows Terminal**: `<C-.>` (code actions) requires a custom keybinding to send the correct
 > escape sequence. Add the following to Windows Terminal's `settings.json`
 > (`Ctrl+Shift+,` to open):
 >
@@ -199,15 +117,6 @@ Global keymaps defined in `lua/lars/keymap.lua`.
 > { "id": "User.sendInput.ctrlDot", "keys": "ctrl+." }
 > ```
 
-**Diagnostics (always active):**
-
-| Key | Description |
-|-----|-------------|
-| `gl` | Open diagnostic float for current line |
-| `dn` | Go to previous diagnostic |
-| `dN` | Go to next diagnostic |
-| `<leader>q` | Send diagnostics to location list |
-
 ---
 
 ## Completion
@@ -215,16 +124,6 @@ Global keymaps defined in `lua/lars/keymap.lua`.
 > `lua/plugins/lspandcompletion/completion.lua`
 > Powered by nvim-cmp with LuaSnip snippets.
 > Sources: LSP, Lua API, LuaSnip, ctags, buffer, path, cmdline.
-
-| Key | Mode | Description |
-|-----|------|-------------|
-| `<Tab>` | i/s | Next item / expand or jump in snippet / trigger completion |
-| `<S-Tab>` | i/s | Previous item / jump back in snippet |
-| `<C-b>` | i | Scroll documentation up |
-| `<C-f>` | i | Scroll documentation down |
-| `<C-Space>` | i | Trigger completion manually |
-| `<C-e>` | i | Abort / close completion menu |
-| `<CR>` | i | Confirm selected item |
 
 Cmdline completion is also active: `/` and `?` complete from buffer, `:` completes commands and paths.
 
@@ -235,35 +134,6 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 > `lua/plugins/debug/nvim-dap.lua` + `nvim-dap-ui.lua`
 > Adapters installed via Mason. Supports C# (netcoredbg), C/C++/Rust (codelldb).
 
-**Session control:**
-
-| Key | Description |
-|-----|-------------|
-| `<F5>` | Continue |
-| `<F10>` | Step over |
-| `<F11>` | Step into |
-| `<F12>` | Step out |
-
-**Breakpoints:**
-
-| Key | Description |
-|-----|-------------|
-| `<leader>db` | Toggle breakpoint |
-| `<leader>dB` | Set conditional breakpoint |
-| `<leader>dlb` | Set log point (prints message without stopping) |
-
-**Inspection:**
-
-| Key | Mode | Description |
-|-----|------|-------------|
-| `<leader>dh` | n/v | Hover: show value under cursor |
-| `<leader>dp` | n/v | Preview: show value in float |
-| `<leader>df` | n | Show call stack frames |
-| `<leader>ds` | n | Show current scopes/variables |
-| `<leader>dr` | n | Open debug REPL |
-| `<leader>dl` | n | Re-run last debug session |
-| `du` | n | Open DAP UI panel |
-
 ---
 
 ## Git
@@ -272,69 +142,32 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 > Powered by vim-fugitive. `<leader>gb` shows commit messages inline in the blame view (via fugitive-blame-ext).
 > For commit history and branch management, use Telescope (`<leader>fl`, `<leader>fb`).
 
-| Key | Description |
-|-----|-------------|
-| `<leader>gs` | Git status (90% floating window) |
-| `<leader>gb` | Git blame — hover over a line to see its commit message |
-| `<leader>gd` | Git diff (fullscreen) |
-| `<leader>gm` | Git diff split (side-by-side) |
-
 ---
 
 ## Text Editing
 
-### Surround — vim-surround
+### Surround -- vim-surround
 
 > `lua/plugins/textedit/surround.lua`
 
-| Key | Description |
-|-----|-------------|
-| `ys{motion}{char}` | Add surround — e.g. `ysiw"` wraps word in quotes |
-| `cs{old}{new}` | Change surround — e.g. `cs'"` changes `'` to `"` |
-| `ds{char}` | Delete surround — e.g. `ds"` removes surrounding quotes |
-
-### Comment — Comment.nvim
+### Comment -- Comment.nvim
 
 > `lua/plugins/textedit/comment.lua`
 
-| Key | Description |
-|-----|-------------|
-| `gcc` | Toggle line comment |
-| `gc{motion}` | Toggle line comment over motion |
-| `gbc` | Toggle block comment |
-| `gb{motion}` | Toggle block comment over motion |
-
-### Sideways — Move Arguments
+### Sideways -- Move Arguments
 
 > `lua/plugins/textedit/sideways.lua`
 > Move function arguments / list items left or right.
-
-| Key | Description |
-|-----|-------------|
-| `<C-h>` | Move argument left |
-| `<C-l>` | Move argument right |
 
 ### CamelCaseMotion
 
 > `lua/plugins/textedit/camelcasemotion.lua`
 > Navigate inside `camelCase` and `PascalCase` words using leader-prefixed motions.
 
-| Key | Description |
-|-----|-------------|
-| `<leader>w` | Next CamelCase word segment |
-| `<leader>b` | Previous CamelCase word segment |
-| `<leader>e` | End of CamelCase word segment |
-
-### Treesitter — Incremental Selection
+### Treesitter -- Incremental Selection
 
 > `lua/plugins/lspandcompletion/treesiter.lua`
 > Structurally expand/shrink the visual selection by syntax node.
-
-| Key | Description |
-|-----|-------------|
-| `<C-space>` | Start selection / expand to next node |
-| `<C-s>` | Expand to containing scope |
-| `<M-space>` | Shrink selection |
 
 ---
 
@@ -343,13 +176,6 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 > `lua/plugins/vimwiki.lua`
 > Powered by kiwi.nvim. Wiki stored at `{data}/vimwiki` (symlink to change location).
 
-| Key | Description |
-|-----|-------------|
-| `<leader>vw` | Open wiki index |
-| `<leader>vd` | Open diary index |
-| `<leader>vn` | New diary entry for today |
-| `<leader>x` | Toggle todo checkbox |
-
 ---
 
 ## Build / Dispatch
@@ -357,82 +183,44 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 > `lua/plugins/vimdispatch.lua`
 > Async build system via vim-dispatch. Runs Make/shell commands without blocking.
 
-| Key | Description |
-|-----|-------------|
-| `m<CR>` | Run `make` (dispatched) |
-| `m<Space>` | Prepare a `make` command to edit before running |
-| `` `<Space> `` | Prepare a shell command to edit before running |
-| `<leader>ml` | Run `dotnet Make \Lofwyr` (project-specific) |
-
 ---
 
 ## AI / Claude Code
 
 > `lua/plugins/ai/claudecode.lua`
 > Powered by [claude-code.nvim](https://github.com/greggh/claude-code.nvim). Terminal-based Claude Code integration.
-> Launched with `/LOW` priority and CPU affinity `0xE` (logical procs 1–3) via a `cmd /c start` wrapper, so Claude and all its child processes (builds, tests) leave one logical processor free for the rest of the system.
+> Launched with `/LOW` priority and CPU affinity `0xE` (logical procs 1-3) via a `cmd /c start` wrapper, so Claude and all its child processes (builds, tests) leave one logical processor free for the rest of the system.
 > File-refresh polling is custom: every 5s via a libuv timer, plus on `BufEnter`/`FocusGained`, but only while the Claude terminal is NOT the currently focused window. This avoids a `:terminal` viewport-follows-cursor interaction that caused scroll-through-transcript jank on long conversations.
-
-| Key | Mode | Description |
-|-----|------|-------------|
-| `<C-,>` | n,t | Toggle Claude terminal |
-| `<leader>ar` | n | Resume last session |
-| `<leader>as` | v | Send visual selection to Claude |
-| `<leader>ad` | n | View Claude diff |
-| `<leader>ak` | n | Kill Claude terminal (force-delete buffer + job; for hangs) |
 
 ---
 
 ## UI
 
-### Dashboard — alpha-nvim
+### Dashboard -- alpha-nvim
 
 > `lua/plugins/ui/dashboard.lua`
 > Replaces the default welcome screen. Shows interactive shortcuts and a keymap cheat sheet.
 > Only appears when Neovim is opened without a file argument (`nvim`).
 
-| Key | Description |
-|-----|-------------|
-| `f` | Find file |
-| `g` | Live grep |
-| `r` | Recent files |
-| `k` | Browse keymaps |
-| `q` | Quit |
-
 ---
 
 ## Testing / Coverage
 
-### Neotest — Test Explorer
+### Neotest -- Test Explorer
 
 > `lua/plugins/testing/neotest.lua`
 > Test runner and explorer with tree-view panel. Uses neotest-dotnet adapter for C#/xUnit.
 
-| Key | Description |
-|-----|-------------|
-| `<leader>tn` | Run nearest test |
-| `<leader>tf` | Run current test file |
-| `<leader>ta` | Run all tests |
-| `<leader>to` | Toggle test output panel |
-| `<leader>tp` | Toggle test summary (tree view) |
-| `<leader>tl` | Re-run last test |
-
-### nvim-coverage — Code Coverage
+### nvim-coverage -- Code Coverage
 
 > `lua/plugins/testing/nvim-coverage.lua`
 > Displays code coverage as gutter signs. Reads Cobertura XML from `dotnet test --collect:"XPlat Code Coverage"`.
-
-| Key | Description |
-|-----|-------------|
-| `<leader>tC` | Toggle coverage signs |
-| `<leader>tL` | Load coverage data |
-| `<leader>tS` | Coverage summary |
 
 ---
 
 ## Automated Tests
 
-> `tests/` — Automated test suite using [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) busted runner.
+> `tests/` -- Automated test suite using [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) busted runner.
 > Catches keymap regressions, plugin API breakage, and config drift.
 
 **Run all tests:**
@@ -450,15 +238,15 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 
 | Spec file | Tests | What it verifies |
 |-----------|-------|-----------------|
-| `keymap_spec.lua` | 20 | Global keymaps (keymap.lua + LSP diagnostics) |
+| `keymap_spec.lua` | 27 | Global keymaps (keymap.lua + LSP diagnostics + fold commands) |
 | `plugin_keymap_spec.lua` | 62 | Plugin keymaps (Telescope, Harpoon, DAP, etc.) |
 | `options_spec.lua` | 14 | Editor options (tabstop, scrolloff, etc.) |
 | `alternate_spec.lua` | 7 | Test/source and View/Page/ViewModel navigation logic |
 | `behavior_spec.lua` | 3 | Feedkeys behavioral tests (yank, quickfix, scroll) |
 | `plugin_smoke_spec.lua` | 24 | Plugin load + API smoke tests |
-| `dispatch_notify_spec.lua` | — | Dispatch/notify-based test coverage |
+| `dispatch_notify_spec.lua` | -- | Dispatch/notify-based test coverage |
 
-**LSP integration tests** (separate runner — needs event loop, ~60s per server):
+**LSP integration tests** (separate runner -- needs event loop, ~60s per server):
 
 ```sh
 cd ~/AppData/Local/nvim
@@ -478,11 +266,6 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 
 > Settings in `lua/lars/options.lua`. Only active when running inside Neovide.
 > Default scale factor: `0.8`.
-
-| Key | Description |
-|-----|-------------|
-| `<C-=>` | Zoom in (scale × 1.25) |
-| `<C-->` | Zoom out (scale ÷ 1.25) |
 
 ---
 

@@ -20,6 +20,15 @@ local alt = require('lars.alternate')
 vim.keymap.set('n', '<leader>jt', alt.goto_test_or_source,   { desc = 'Alternate: test ↔ source' })
 vim.keymap.set('n', '<leader>jv', alt.goto_view_or_viewmodel, { desc = 'Alternate: view/page ↔ viewmodel' })
 
+-- Fold commands (descriptions make them discoverable via <leader>fk)
+vim.keymap.set('n', 'za', 'za', { desc = "Toggle fold under cursor" })
+vim.keymap.set('n', 'zc', 'zc', { desc = "Close fold under cursor" })
+vim.keymap.set('n', 'zo', 'zo', { desc = "Open fold under cursor" })
+vim.keymap.set('n', 'zM', 'zM', { desc = "Close all folds" })
+vim.keymap.set('n', 'zR', 'zR', { desc = "Open all folds" })
+vim.keymap.set('n', 'zm', 'zm', { desc = "Fold more (reduce foldlevel)" })
+vim.keymap.set('n', 'zr', 'zr', { desc = "Fold less (increase foldlevel)" })
+
 -- Terminal mode: exit and window navigation
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 vim.keymap.set('t', '<C-w>h', '<C-\\><C-n><C-w>h', { desc = 'Terminal: move left' })

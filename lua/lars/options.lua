@@ -15,6 +15,12 @@ vim.opt.ignorecase = true
 vim.opt.smartcase = true -- if search term contains upper case letters use case sensitive search
 vim.opt.linebreak = true -- wrap at word boundaries, not mid-word
 
+-- Treesitter-based code folding (all folds open by default)
+vim.opt.foldmethod = "expr"
+vim.opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+vim.opt.foldlevel = 99
+vim.opt.foldlevelstart = 99
+
 
 if vim.g.neovide then
 	vim.g.neovide_scale_factor = 0.8
