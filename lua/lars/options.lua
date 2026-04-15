@@ -21,6 +21,31 @@ vim.opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
 vim.opt.foldlevel = 99
 vim.opt.foldlevelstart = 99
 
+-- After treesitter computes folds, set foldlevel to the actual max depth so
+-- that zm immediately starts closing folds (instead of decrementing from 99).
+local treesitter_fold_group = vim.api.nvim_create_augroup("treesitter_fold_level", { clear = true })
+vim.api.nvim_create_autocmd("BufWinEnter", {
+    group = treesitter_fold_group,
+    callback = function()
+        -- Defer to let treesitter finish computing fold levels
+        vim.defer_fn(function()
+            if not vim.api.nvim_buf_is_valid(vim.api.nvim_get_current_buf()) then
+                return
+            end
+            local max_level = 0
+            local line_count = vim.api.nvim_buf_line_count(0)
+            for lnum = 1, line_count do
+                local level = vim.fn.foldlevel(lnum)
+                if level > max_level then
+                    max_level = level
+                end
+            end
+            if max_level > 0 then
+                vim.wo.foldlevel = max_level
+            end
+        end, 100)
+    end,
+})
 
 if vim.g.neovide then
 	vim.g.neovide_scale_factor = 0.8
