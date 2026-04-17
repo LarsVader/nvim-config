@@ -101,36 +101,101 @@ return {
 					end,
 				})
 
-				-- Diff commands: close floats, open fresh status, let fugitive handle it
-				local function diff_in_splits(keys)
-					return function()
-						local cursor = vim.api.nvim_win_get_cursor(0)
-						cleanup()
-						-- Remember the buffer behind the float to restore later
-						local restore_buf = nil
-						for _, win in ipairs(vim.api.nvim_list_wins()) do
-							if vim.api.nvim_win_is_valid(win) and not vim.w[win].fugitive_float then
-								local config = vim.api.nvim_win_get_config(win)
-								if config.relative == '' then
-									restore_buf = vim.api.nvim_win_get_buf(win)
-									break
+				-- Add +/-, <C-o> keymaps to all diff windows
+				local function setup_diff_keymaps(restore_buf)
+					for _, win in ipairs(vim.api.nvim_list_wins()) do
+						if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then
+							vim.wo[win].foldlevel = 0
+							local b = vim.api.nvim_win_get_buf(win)
+							local function set_context(delta)
+								return function()
+									local opt = vim.o.diffopt
+									local cur = tonumber(opt:match('context:(%d+)')) or 6
+									local new = math.max(0, cur + delta)
+									vim.opt.diffopt:remove('context:' .. cur)
+									vim.opt.diffopt:append('context:' .. new)
+									for _, w in ipairs(vim.api.nvim_list_wins()) do
+										if vim.api.nvim_win_is_valid(w) and vim.wo[w].diff then
+											vim.wo[w].foldlevel = 0
+										end
+									end
 								end
 							end
+							vim.keymap.set('n', '+', set_context(3), { buffer = b, desc = 'More diff context' })
+							vim.keymap.set('n', '-', set_context(-3), { buffer = b, desc = 'Less diff context' })
+							vim.keymap.set('n', '<C-o>', function()
+								vim.cmd('diffoff!')
+								vim.cmd('only')
+								if restore_buf and vim.api.nvim_buf_is_valid(restore_buf) then
+									vim.cmd('buffer ' .. restore_buf)
+								end
+							end, { buffer = b, desc = 'Close diff, return to previous buffer' })
 						end
-						-- Close all float windows
-						for _, win in ipairs(vim.api.nvim_list_wins()) do
-							if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
-								vim.api.nvim_win_close(win, true)
+					end
+				end
+
+				-- Diff: 4-way merge during conflicts, 2-way diff otherwise
+				vim.keymap.set('n', 'd', function()
+					local cursor = vim.api.nvim_win_get_cursor(0)
+					-- Extract filename from fugitive status line (e.g. "M file.txt", "UU file.txt")
+					local cfile = vim.api.nvim_get_current_line():match('^%S+%s+(.-)%s*$')
+					local git_dir = vim.fn.FugitiveGitDir()
+					local worktree = vim.fn.FugitiveWorkTree()
+					local is_merge = vim.fn.filereadable(git_dir .. '/MERGE_HEAD') == 1
+						or vim.fn.filereadable(git_dir .. '/REBASE_HEAD') == 1
+					cleanup()
+					-- Remember the buffer behind the float to restore later
+					local restore_buf = nil
+					for _, win in ipairs(vim.api.nvim_list_wins()) do
+						if vim.api.nvim_win_is_valid(win) and not vim.w[win].fugitive_float then
+							local config = vim.api.nvim_win_get_config(win)
+							if config.relative == '' then
+								restore_buf = vim.api.nvim_win_get_buf(win)
+								break
 							end
 						end
-						-- Delete the old buffer so :G creates a fresh one with native mappings
-						if vim.api.nvim_buf_is_valid(buf) then
-							vim.api.nvim_buf_delete(buf, { force = true })
+					end
+					-- Close all float windows
+					for _, win in ipairs(vim.api.nvim_list_wins()) do
+						if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
+							vim.api.nvim_win_close(win, true)
 						end
+					end
+					if vim.api.nvim_buf_is_valid(buf) then
+						vim.api.nvim_buf_delete(buf, { force = true })
+					end
+
+					if is_merge and cfile and cfile ~= '' then
+						-- 4-way merge: LOCAL | BASE | REMOTE / MERGED
+						vim.cmd('only')
+						local escaped = vim.fn.fnameescape(cfile)
+						vim.cmd('Gedit :2:' .. escaped)
+						local local_buf = vim.api.nvim_get_current_buf()
+						vim.cmd('diffthis')
+						vim.cmd('rightbelow vsplit')
+						vim.cmd('Gedit :1:' .. escaped)
+						local base_buf = vim.api.nvim_get_current_buf()
+						vim.cmd('diffthis')
+						vim.cmd('rightbelow vsplit')
+						vim.cmd('Gedit :3:' .. escaped)
+						local remote_buf = vim.api.nvim_get_current_buf()
+						vim.cmd('diffthis')
+						vim.cmd('botright split ' .. vim.fn.fnameescape(worktree .. '/' .. cfile))
+						local merged_buf = vim.api.nvim_get_current_buf()
+						vim.cmd('diffthis')
+						-- diffget keymaps on the MERGED buffer
+						vim.keymap.set('n', 'gl', function() vim.cmd('diffget ' .. local_buf) end,
+							{ buffer = merged_buf, desc = 'Get from LOCAL (left)' })
+						vim.keymap.set('n', 'gb', function() vim.cmd('diffget ' .. base_buf) end,
+							{ buffer = merged_buf, desc = 'Get from BASE (center)' })
+						vim.keymap.set('n', 'gr', function() vim.cmd('diffget ' .. remote_buf) end,
+							{ buffer = merged_buf, desc = 'Get from REMOTE (right)' })
+						setup_diff_keymaps(restore_buf)
+					else
+						-- Regular 2-way diff
 						vim.cmd('G')
 						vim.cmd('only')
 						pcall(vim.api.nvim_win_set_cursor, 0, cursor)
-						-- Close fugitive status once the diff split is created
 						vim.api.nvim_create_autocmd('WinNew', {
 							once = true,
 							callback = function()
@@ -144,47 +209,15 @@ return {
 											end
 										end
 									end
-									-- Reset foldlevel and add context keymaps to diff windows
-									for _, win in ipairs(vim.api.nvim_list_wins()) do
-										if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then
-											vim.wo[win].foldlevel = 0
-											local b = vim.api.nvim_win_get_buf(win)
-											local function set_context(delta)
-												return function()
-													local opt = vim.o.diffopt
-													local cur = tonumber(opt:match('context:(%d+)')) or 6
-													local new = math.max(0, cur + delta)
-													vim.opt.diffopt:remove('context:' .. cur)
-													vim.opt.diffopt:append('context:' .. new)
-													-- Refresh folds in all diff windows
-													for _, w in ipairs(vim.api.nvim_list_wins()) do
-														if vim.api.nvim_win_is_valid(w) and vim.wo[w].diff then
-															vim.wo[w].foldlevel = 0
-														end
-													end
-												end
-											end
-											vim.keymap.set('n', '+', set_context(3), { buffer = b, desc = 'More diff context' })
-											vim.keymap.set('n', '-', set_context(-3), { buffer = b, desc = 'Less diff context' })
-											vim.keymap.set('n', '<C-o>', function()
-												vim.cmd('diffoff!')
-												vim.cmd('only')
-												if restore_buf and vim.api.nvim_buf_is_valid(restore_buf) then
-													vim.cmd('buffer ' .. restore_buf)
-												end
-											end, { buffer = b, desc = 'Close diff, return to previous buffer' })
-										end
-									end
+									setup_diff_keymaps(restore_buf)
 								end)
 							end,
 						})
 						vim.schedule(function()
-							vim.api.nvim_feedkeys(keys, 'm', false)
+							vim.api.nvim_feedkeys('dv', 'm', false)
 						end)
 					end
-				end
-
-				vim.keymap.set('n', 'd', diff_in_splits('dv'), { buffer = buf })
+				end, { buffer = buf })
 			end, desc='Git status' },
 			{ '<leader>gb', ':G blame<CR>', desc='Git blame' },
 			{ '<leader>gd', ':G diff<CR>:only<CR>', desc='Git diff' },

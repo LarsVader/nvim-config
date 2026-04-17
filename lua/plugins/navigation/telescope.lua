@@ -50,6 +50,19 @@ return {
 			local finders     = require('telescope.finders')
 			local keymaps = {}
 			for _, mode in ipairs({ 'n', 'v', 'i', 'x', 'o', 't' }) do
+				-- Buffer-local keymaps first (marked with [buf])
+				for _, km in ipairs(vim.api.nvim_buf_get_keymap(0, mode)) do
+					local desc = km.desc or ''
+					local rhs  = type(km.rhs) == 'string' and km.rhs or ''
+					if desc ~= '' or rhs ~= '' then
+						table.insert(keymaps, {
+							mode    = mode,
+							lhs     = km.lhs or '',
+							desc    = '[buf] ' .. (desc ~= '' and desc or rhs),
+						})
+					end
+				end
+				-- Global keymaps
 				for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
 					local desc = km.desc or ''
 					local rhs  = type(km.rhs) == 'string' and km.rhs or ''
