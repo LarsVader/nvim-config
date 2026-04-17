@@ -15,6 +15,17 @@ vim.opt.ignorecase = true
 vim.opt.smartcase = true -- if search term contains upper case letters use case sensitive search
 vim.opt.linebreak = true -- wrap at word boundaries, not mid-word
 
+-- Show invisible characters
+vim.opt.list = true
+vim.opt.listchars = {
+    tab = "» ",
+    trail = "·",
+    nbsp = "␣",
+    extends = "›",
+    precedes = "‹",
+    space = "·",
+}
+
 -- Treesitter-based code folding (all folds open by default)
 vim.opt.foldmethod = "expr"
 vim.opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
