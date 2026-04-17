@@ -177,4 +177,10 @@ describe("plugin keymaps", function()
             end)
         end
     end)
+
+    describe("themery", function()
+        it("<leader>ut (theme switcher)", function()
+            assert.is_true(h.has_keymap("n", "<leader>ut"), "<leader>ut not found")
+        end)
+    end)
 end)

@@ -301,8 +301,13 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | [CamelCaseMotion](https://github.com/bkad/CamelCaseMotion) | Navigate camelCase words |
 | [autopairs](https://github.com/windwp/nvim-autopairs) | Auto-close brackets/quotes |
 | [neoformat](https://github.com/sbdchd/neoformat) | Code formatter |
-| [nightfox.nvim](https://github.com/EdenEast/nightfox.nvim) | Color scheme (active) |
-| [tokyonight.nvim](https://github.com/folke/tokyonight.nvim) | Color scheme (available) |
+| [themery.nvim](https://github.com/zaldih/themery.nvim) | Theme switcher with persistence (`<Space>ut`) |
+| [nightfox.nvim](https://github.com/EdenEast/nightfox.nvim) | Color scheme (default: carbonfox) |
+| [tokyonight.nvim](https://github.com/folke/tokyonight.nvim) | Color scheme |
+| [catppuccin](https://github.com/catppuccin/nvim) | Color scheme |
+| [rose-pine](https://github.com/rose-pine/neovim) | Color scheme |
+| [kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim) | Color scheme |
+| [everforest](https://github.com/sainnhe/everforest) | Color scheme |
 | [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim) | Status line |
 | [kiwi.nvim](https://github.com/serenevoid/kiwi.nvim) | Wiki / diary |
 | [vim-dispatch](https://github.com/tpope/vim-dispatch) | Async build/run commands |
