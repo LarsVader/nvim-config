@@ -28,6 +28,12 @@ describe("global keymaps", function()
             assert.is_not_nil(km.desc:lower():find("previous quickfix"), "desc missing 'previous quickfix'")
         end)
 
+        it("close quickfix <leader>cc", function()
+            local km = h.find_keymap("n", "<leader>cc")
+            assert.is_not_nil(km, "<leader>cc not found")
+            assert.is_not_nil(km.desc:lower():find("close quickfix"), "desc missing 'close quickfix'")
+        end)
+
         it("yank to clipboard <leader>y", function()
             local km = h.find_keymap("n", "<leader>y")
             assert.is_not_nil(km, "<leader>y not found")

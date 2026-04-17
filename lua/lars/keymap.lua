@@ -6,6 +6,7 @@ vim.keymap.set('n', '<c-u>', '<c-u>zz', { desc = "Scroll up, keep cursor centere
 
 vim.keymap.set('n', '<leader>n', ':cnext<CR>', { desc = "Next quickfix item" })
 vim.keymap.set('n', '<leader>N', ':cprev<CR>', { desc = "Previous quickfix item" })
+vim.keymap.set('n', '<leader>cc', ':cclose<CR>', { desc = "Close quickfix window" })
 
 vim.keymap.set({'n', 'v'}, '<leader>y', '"*y', { desc = "Yank to system clipboard" })
 vim.keymap.set({'n', 'v'}, '<leader>p', '"+p', { desc = "Paste from system clipboard" })
