@@ -43,6 +43,8 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
             if not vim.api.nvim_buf_is_valid(vim.api.nvim_get_current_buf()) then
                 return
             end
+            -- Don't override foldlevel in diff mode (it uses foldmethod=diff)
+            if vim.wo.diff then return end
             local max_level = 0
             local line_count = vim.api.nvim_buf_line_count(0)
             for lnum = 1, line_count do
