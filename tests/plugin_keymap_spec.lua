@@ -178,6 +178,26 @@ describe("plugin keymaps", function()
         end
     end)
 
+    describe("git-cherry-pick", function()
+        it("<leader>gp (cherry-pick from branch)", function()
+            assert.is_true(h.has_keymap("n", "<leader>gp"), "<leader>gp not found")
+        end)
+    end)
+
+    describe("diffview", function()
+        local keys = {
+            { "<leader>dv", "open" },
+            { "<leader>dh", "file history" },
+            { "<leader>dc", "close" },
+            { "<leader>dm", "diff against main" },
+        }
+        for _, k in ipairs(keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
+            end)
+        end
+    end)
+
     describe("themery", function()
         it("<leader>ut (theme switcher)", function()
             assert.is_true(h.has_keymap("n", "<leader>ut"), "<leader>ut not found")
