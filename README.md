@@ -41,6 +41,7 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 | Visual Studio Build Tools 2022 or Visual Studio 2022 | Add these to `PATH`: |
 | | `msbuild.exe`: `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin` |
 | | `vstest.console.exe`: `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\TestWindow` |
+| axsg-lsp *(optional)* | XAML LSP. Install via `dotnet tool install -g axsg-lsp` |
 | [Neovide](https://neovide.dev/) *(optional)* | Launch with `--multigrid` for smooth scrolling |
 
 **Setup:**
@@ -103,6 +104,7 @@ Open Neovim -- Lazy.nvim will bootstrap itself and install all plugins automatic
 > `lua/plugins/lspandcompletion/nvim-lsp-config.lua`
 > Active for: `rust`, `c`, `cpp`, `toml`, `lua`
 > C# uses Roslyn LSP via `roslyn.nvim` (separate plugin, auto-detects `.sln`/`.csproj`).
+> XAML uses `axsg-lsp` (XamlToCSharpGenerator) via `vim.lsp.config` — auto-attaches to `.xaml` files in projects with `.sln`/`.csproj`.
 
 > **Windows Terminal**: `<C-.>` (code actions) requires a custom keybinding to send the correct
 > escape sequence. Add the following to Windows Terminal's `settings.json`
@@ -141,6 +143,18 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 > `lua/plugins/sourcecontrol/fugitive.lua`
 > Powered by vim-fugitive. `<leader>gb` shows commit messages inline in the blame view (via fugitive-blame-ext).
 > For commit history and branch management, use Telescope (`<leader>fl`, `<leader>fb`).
+
+### Diffview -- Diff and File History
+
+> `lua/plugins/sourcecontrol/diffview.lua`
+> Side-by-side diff viewer and file history browser powered by diffview.nvim.
+
+| Key | Action |
+|-----|--------|
+| `<Space>dv` | Open diff view (working tree vs index) |
+| `<Space>dh` | Open file history for current file |
+| `<Space>dc` | Close diff view |
+| `<Space>dm` | Diff against main branch |
 
 ---
 
@@ -295,6 +309,7 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | [vim-fugitive](https://github.com/tpope/vim-fugitive) | Git integration |
 | [vim-rhubarb](https://github.com/tpope/vim-rhubarb) | GitHub integration for fugitive |
 | [vim-fugitive-blame-ext](https://github.com/tommcdo/vim-fugitive-blame-ext) | Commit messages in blame view |
+| [diffview.nvim](https://github.com/sindrets/diffview.nvim) | Side-by-side diff viewer and file history |
 | [vim-surround](https://github.com/tpope/vim-surround) | Surround text objects |
 | [Comment.nvim](https://github.com/numToStr/Comment.nvim) | Comment/uncomment operators |
 | [sideways.vim](https://github.com/AndrewRadev/sideways.vim) | Move function arguments |

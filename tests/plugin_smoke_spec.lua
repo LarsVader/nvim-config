@@ -280,6 +280,20 @@ describe("plugin smoke tests", function()
         end)
     end)
 
+    describe("diffview", function()
+        it("loads without error", function()
+            local ok, err = h.force_load_plugin("diffview.nvim")
+            assert.is_true(ok, "diffview failed to load: " .. tostring(err))
+        end)
+
+        it("diffview module is requireable", function()
+            local ok, err = pcall(function()
+                require("diffview")
+            end)
+            assert.is_true(ok, "diffview failed to require: " .. tostring(err))
+        end)
+    end)
+
     describe("themery", function()
         it("loads without error", function()
             local ok, err = h.force_load_plugin("themery.nvim")
@@ -291,6 +305,30 @@ describe("plugin smoke tests", function()
                 require("themery")
             end)
             assert.is_true(ok, "themery failed to require: " .. tostring(err))
+        end)
+    end)
+
+    describe("xaml-lsp", function()
+        it("registers xaml filetype for .xaml extension", function()
+            local ft = vim.filetype.match({ filename = "MainPage.xaml" })
+            assert.equals("xaml", ft, ".xaml should be detected as xaml filetype")
+        end)
+
+        it("axsg_lsp is configured via vim.lsp.config", function()
+            local cfg = vim.lsp.config["axsg_lsp"]
+            assert.is_not_nil(cfg, "axsg_lsp should be registered in vim.lsp.config")
+        end)
+
+        it("axsg_lsp config has correct filetypes", function()
+            local cfg = vim.lsp.config["axsg_lsp"]
+            assert.is_not_nil(cfg.filetypes, "filetypes should be set")
+            assert.same({ "xaml" }, cfg.filetypes)
+        end)
+
+        it("axsg_lsp cmd is a table with the binary path", function()
+            local cfg = vim.lsp.config["axsg_lsp"]
+            assert.equals("table", type(cfg.cmd), "cmd should be a table")
+            assert.truthy(cfg.cmd[1]:match("axsg%-lsp"), "cmd should contain axsg-lsp binary")
         end)
     end)
 end)

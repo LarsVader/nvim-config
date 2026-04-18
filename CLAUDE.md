@@ -51,6 +51,7 @@ return {
 - **C#**: roslyn.nvim (Roslyn LSP via Mason), netcoredbg debug adapter
 - **C/C++**: codelldb debug adapter
 - **Lua**: neodev.nvim (for Neovim API completion)
+- **XAML**: axsg-lsp (XamlToCSharpGenerator, dotnet tool, stdio transport)
 
 ## Testing
 
