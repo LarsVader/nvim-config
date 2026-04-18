@@ -2,6 +2,7 @@ return {
 	{
 		'tpope/vim-fugitive',
 		dependencies = { 'tpope/vim-rhubarb', },
+		cmd = 'G',
 		keys = {
 			{ '<leader>gs', function()
 				local function float_opts()
