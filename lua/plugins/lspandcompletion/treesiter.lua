@@ -7,7 +7,7 @@ local function has_compiler()
 end
 
 local wanted_parsers = {
-	'cpp', 'rust', 'javascript', 'vimdoc', 'vim', 'lua', 'c_sharp',
+	'cpp', 'rust', 'javascript', 'vimdoc', 'vim', 'lua', 'c_sharp', 'xml'
 }
 
 return {

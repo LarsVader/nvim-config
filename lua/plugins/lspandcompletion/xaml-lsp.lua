@@ -1,5 +1,5 @@
--- XAML LSP via axsg-lsp (XamlToCSharpGenerator Language Server)
--- Binary: ~/.dotnet/tools/axsg-lsp (installed via dotnet tool)
+-- XAML LSP via xaml-lsp (XamlToCSharpGenerator Language Server)
+-- Binary: installed via Mason (:MasonInstall xaml-lsp)
 -- Transport: stdio, accepts --workspace <path>
 
 -- NOTE: nvim-cmp versions before commit 51260c0 (PR #1734) call the
@@ -49,9 +49,19 @@ vim.api.nvim_create_autocmd("LspTokenUpdate", {
 -- Configure and enable axsg-lsp for XAML files.
 -- Uses vim.lsp.config + vim.lsp.enable (Neovim 0.11+) which
 -- auto-attaches via a FileType autocmd — no plugin needed.
-local cmd_path = vim.fn.expand("~/.dotnet/tools/axsg-lsp")
-if vim.fn.has("win32") == 1 then
-	cmd_path = cmd_path .. ".exe"
+-- Toggle: true = use local dotnet tool build, false = use Mason-installed binary.
+local USE_LOCAL_BUILD = false
+
+local cmd_path
+if USE_LOCAL_BUILD then
+	cmd_path = vim.fn.expand("~/.dotnet/tools/axsg-lsp.exe")
+else
+	cmd_path = vim.fn.stdpath("data") .. "/mason/packages/xaml-lsp/XamlToCSharpGenerator.LanguageServer.exe"
+end
+
+if not vim.uv.fs_stat(cmd_path) then
+	vim.notify("xaml-lsp: binary not found at " .. cmd_path, vim.log.levels.WARN)
+	return {}
 end
 
 vim.lsp.config("axsg_lsp", {
@@ -75,6 +85,56 @@ vim.lsp.config("axsg_lsp", {
 })
 
 vim.lsp.enable("axsg_lsp")
+
+-- Handle axsg-metadata:// URIs — opens decompiled C# source from the LSP.
+-- The LSP sends go-to-definition responses pointing to these virtual URIs
+-- for types defined in referenced assemblies.
+vim.api.nvim_create_autocmd("BufReadCmd", {
+	pattern = "axsg-metadata://*",
+	callback = function(args)
+		local buf = args.buf
+		local bufname = vim.api.nvim_buf_get_name(buf)
+
+		-- Extract the id parameter from the URI query string
+		local id = bufname:match("id=([^&]+)")
+		if not id then
+			vim.notify("axsg-metadata: missing 'id' in URI: " .. bufname, vim.log.levels.ERROR)
+			return
+		end
+
+		-- URL-decode the id (replace %XX hex escapes)
+		id = id:gsub("%%(%x%x)", function(hex)
+			return string.char(tonumber(hex, 16))
+		end)
+
+		-- Find an active axsg_lsp client
+		local clients = vim.lsp.get_clients({ name = "axsg_lsp" })
+		if #clients == 0 then
+			vim.notify("axsg-metadata: no active axsg_lsp client found", vim.log.levels.ERROR)
+			return
+		end
+		local client = clients[1]
+
+		-- Request decompiled source from the LSP
+		client:request("axsg/metadataDocument", { id = id }, function(err, result)
+			if err then
+				vim.notify("axsg/metadataDocument error: " .. tostring(err), vim.log.levels.ERROR)
+				return
+			end
+
+			vim.schedule(function()
+				local lines = vim.split(result, "\n", { plain = true })
+				vim.bo[buf].modifiable = true
+				vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+				vim.bo[buf].buftype = "nofile"
+				vim.bo[buf].filetype = "cs"
+				vim.bo[buf].modifiable = false
+				vim.bo[buf].readonly = true
+				vim.bo[buf].buflisted = true
+			end)
+		end, buf)
+	end,
+})
 
 -- Return empty spec — no plugin to install, this file is
 -- purely configuration sourced by Lazy.nvim's directory scan.

@@ -309,26 +309,55 @@ describe("plugin smoke tests", function()
     end)
 
     describe("xaml-lsp", function()
+        -- When Mason/xaml-lsp is not installed, the plugin returns {} early
+        -- and skips vim.lsp.config registration. Detect this so tests that
+        -- depend on the LSP config can be skipped gracefully.
+        local has_axsg_config = vim.lsp.config["axsg_lsp"] ~= nil
+
         it("registers xaml filetype for .xaml extension", function()
             local ft = vim.filetype.match({ filename = "MainPage.xaml" })
             assert.equals("xaml", ft, ".xaml should be detected as xaml filetype")
         end)
 
-        it("axsg_lsp is configured via vim.lsp.config", function()
+        it("axsg_lsp is configured via vim.lsp.config (requires Mason)", function()
+            if not has_axsg_config then
+                pending("xaml-lsp not installed via Mason — skipping")
+                return
+            end
             local cfg = vim.lsp.config["axsg_lsp"]
             assert.is_not_nil(cfg, "axsg_lsp should be registered in vim.lsp.config")
         end)
 
-        it("axsg_lsp config has correct filetypes", function()
+        it("axsg_lsp config has correct filetypes (requires Mason)", function()
+            if not has_axsg_config then
+                pending("xaml-lsp not installed via Mason — skipping")
+                return
+            end
             local cfg = vim.lsp.config["axsg_lsp"]
             assert.is_not_nil(cfg.filetypes, "filetypes should be set")
             assert.same({ "xaml" }, cfg.filetypes)
         end)
 
-        it("axsg_lsp cmd is a table with the binary path", function()
+        it("axsg_lsp cmd resolves via Mason to LanguageServer exe", function()
+            if not has_axsg_config then
+                pending("xaml-lsp not installed via Mason — skipping")
+                return
+            end
             local cfg = vim.lsp.config["axsg_lsp"]
             assert.equals("table", type(cfg.cmd), "cmd should be a table")
-            assert.truthy(cfg.cmd[1]:match("axsg%-lsp"), "cmd should contain axsg-lsp binary")
+            assert.truthy(cfg.cmd[1]:match("LanguageServer"), "cmd should contain LanguageServer binary")
+        end)
+
+        it("BufReadCmd autocmd is registered for axsg-metadata:// URIs", function()
+            if not has_axsg_config then
+                pending("xaml-lsp not installed via Mason — skipping")
+                return
+            end
+            local autocmds = vim.api.nvim_get_autocmds({
+                event = "BufReadCmd",
+                pattern = "axsg-metadata://*",
+            })
+            assert.is_true(#autocmds > 0, "BufReadCmd autocmd for axsg-metadata://* should exist")
         end)
     end)
 end)
