@@ -63,6 +63,24 @@ return {
 						-- Focus the commit editor
 						vim.api.nvim_set_current_win(commit_float)
 
+						-- Navigation between the two floats
+						for _, map in ipairs({ '<C-w>w', '<C-w><C-w>', '<C-l>' }) do
+							vim.keymap.set('n', map, function()
+								vim.api.nvim_set_current_win(status_float)
+							end, { buffer = commit_buf })
+						end
+						for _, map in ipairs({ '<C-w>w', '<C-w><C-w>', '<C-h>' }) do
+							vim.keymap.set('n', map, function()
+								vim.api.nvim_set_current_win(commit_float)
+							end, { buffer = status_buf })
+						end
+						vim.keymap.set('n', '<C-h>', function()
+							vim.api.nvim_set_current_win(commit_float)
+						end, { buffer = commit_buf })
+						vim.keymap.set('n', '<C-l>', function()
+							vim.api.nvim_set_current_win(status_float)
+						end, { buffer = status_buf })
+
 						-- Clean up both floats when either one closes
 						local cg = vim.api.nvim_create_augroup('FugitiveCommitCleanup', { clear = true })
 						vim.api.nvim_create_autocmd('WinClosed', {
