@@ -247,10 +247,10 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 
 | Spec file | Tests | What it verifies |
 |-----------|-------|-----------------|
-| `keymap_spec.lua` | 27 | Global keymaps (keymap.lua + LSP diagnostics + fold commands) |
+| `keymap_spec.lua` | 32 | Global keymaps (keymap.lua + LSP diagnostics + fold commands) |
 | `plugin_keymap_spec.lua` | 62 | Plugin keymaps (Telescope, Harpoon, DAP, etc.) |
 | `options_spec.lua` | 14 | Editor options (tabstop, scrolloff, etc.) |
-| `alternate_spec.lua` | 7 | Test/source and View/Page/ViewModel navigation logic |
+| `alternate_spec.lua` | 18 | Alternate file navigation (test/source, view/viewmodel, header/source, interface, xaml/codebehind, base class) |
 | `behavior_spec.lua` | 3 | Feedkeys behavioral tests (yank, quickfix, scroll) |
 | `plugin_smoke_spec.lua` | 24 | Plugin load + API smoke tests |
 | `dispatch_notify_spec.lua` | -- | Dispatch/notify-based test coverage |

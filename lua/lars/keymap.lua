@@ -18,8 +18,12 @@ vim.keymap.set({'n', 'v'}, '<leader>ml', [[<cmd>compiler dotnet<cr><cmd>Make "\L
 
 -- Alternate file navigation (test <-> source, view/page <-> viewmodel)
 local alt = require('lars.alternate')
-vim.keymap.set('n', '<leader>jt', alt.goto_test_or_source,   { desc = 'Alternate: test ↔ source' })
-vim.keymap.set('n', '<leader>jv', alt.goto_view_or_viewmodel, { desc = 'Alternate: view/page ↔ viewmodel' })
+vim.keymap.set('n', '<leader>jt', alt.goto_test_or_source,      { desc = 'Alternate: test ↔ source' })
+vim.keymap.set('n', '<leader>jv', alt.goto_view_or_viewmodel,  { desc = 'Alternate: view/page ↔ viewmodel' })
+vim.keymap.set('n', '<leader>jh', alt.goto_header_or_source,   { desc = 'Alternate: header ↔ source' })
+vim.keymap.set('n', '<leader>ji', alt.goto_interface,           { desc = 'Alternate: go to interface' })
+vim.keymap.set('n', '<leader>jx', alt.goto_xaml_or_codebehind,  { desc = 'Alternate: xaml ↔ codebehind' })
+vim.keymap.set('n', '<leader>jb', alt.goto_base_class,          { desc = 'Alternate: go to base class' })
 
 -- Fold commands (descriptions make them discoverable via <leader>fk)
 vim.keymap.set('n', 'za', 'za', { desc = "Toggle fold under cursor" })

@@ -108,4 +108,138 @@ function M.goto_view_or_viewmodel()
     end
 end
 
+-- Parse the current buffer for a class inheritance list.
+-- Returns a list of trimmed type names from "class Foo : Bar, IBaz, IQux"
+local function parse_inheritance_list()
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, line in ipairs(lines) do
+        local inheritance = line:match('class%s+%w+%s*:%s*(.+)')
+        if inheritance then
+            -- Strip anything after an opening brace or "where" clause
+            inheritance = inheritance:match('^(.-)%s*{') or inheritance:match('^(.-)%s*where%s') or inheritance
+            local types = {}
+            for t in inheritance:gmatch('[^,]+') do
+                local trimmed = t:match('^%s*(.-)%s*$')
+                if trimmed and #trimmed > 0 then
+                    types[#types + 1] = trimmed
+                end
+            end
+            return types
+        end
+    end
+    return {}
+end
+
+-- Returns true if a type name looks like a C# interface (starts with I + uppercase)
+local function is_interface(name)
+    return name:match('^I[A-Z]') ~= nil
+end
+
+-- Toggle between C/C++ header and source files
+function M.goto_header_or_source()
+    local full = vim.fn.expand('%:t')
+    local base, ext
+
+    -- Try header extensions
+    base = full:match('^(.+)%.hpp$') or full:match('^(.+)%.h$')
+    if base then
+        -- Header -> source: try .cpp first, then .c
+        local found = find_file(base .. '.cpp') or find_file(base .. '.c')
+        if found then
+            vim.cmd('edit ' .. vim.fn.fnameescape(found))
+        else
+            vim.notify('Source not found for: ' .. full, vim.log.levels.WARN)
+        end
+        return
+    end
+
+    -- Try source extensions
+    base = full:match('^(.+)%.cpp$') or full:match('^(.+)%.c$')
+    if base then
+        -- Source -> header: try .h first, then .hpp
+        local found = find_file(base .. '.h') or find_file(base .. '.hpp')
+        if found then
+            vim.cmd('edit ' .. vim.fn.fnameescape(found))
+        else
+            vim.notify('Header not found for: ' .. full, vim.log.levels.WARN)
+        end
+        return
+    end
+
+    vim.notify('Not a C/C++ file', vim.log.levels.WARN)
+end
+
+-- Jump to the first interface in the current C# file's class declaration
+function M.goto_interface()
+    local full = vim.fn.expand('%:t')
+    if not full:match('%.cs$') then
+        vim.notify('Not a C# file', vim.log.levels.WARN)
+        return
+    end
+
+    local types = parse_inheritance_list()
+    for _, t in ipairs(types) do
+        if is_interface(t) then
+            local found = find_file(t .. '.cs')
+            if found then
+                vim.cmd('edit ' .. vim.fn.fnameescape(found))
+            else
+                vim.notify('Interface not found: ' .. t .. '.cs', vim.log.levels.WARN)
+            end
+            return
+        end
+    end
+    vim.notify('No interface found in class declaration', vim.log.levels.WARN)
+end
+
+-- Toggle between .xaml and .xaml.cs (codebehind)
+function M.goto_xaml_or_codebehind()
+    local full = vim.fn.expand('%:t')
+
+    if full:match('%.xaml%.cs$') then
+        -- Codebehind -> XAML
+        local base = full:gsub('%.xaml%.cs$', '')
+        local found = find_file(base .. '.xaml')
+        if found then
+            vim.cmd('edit ' .. vim.fn.fnameescape(found))
+        else
+            vim.notify('XAML not found: ' .. base .. '.xaml', vim.log.levels.WARN)
+        end
+    elseif full:match('%.xaml$') then
+        -- XAML -> codebehind
+        local base = full:gsub('%.xaml$', '')
+        local found = find_file(base .. '.xaml.cs')
+        if found then
+            vim.cmd('edit ' .. vim.fn.fnameescape(found))
+        else
+            vim.notify('Codebehind not found: ' .. base .. '.xaml.cs', vim.log.levels.WARN)
+        end
+    else
+        vim.notify('Not a XAML file', vim.log.levels.WARN)
+    end
+end
+
+-- Jump to the base class in the current C# file's class declaration
+function M.goto_base_class()
+    local full = vim.fn.expand('%:t')
+    if not full:match('%.cs$') then
+        vim.notify('Not a C# file', vim.log.levels.WARN)
+        return
+    end
+
+    local types = parse_inheritance_list()
+    for _, t in ipairs(types) do
+        if not is_interface(t) then
+            local found = find_file(t .. '.cs')
+            if found then
+                vim.cmd('edit ' .. vim.fn.fnameescape(found))
+            else
+                vim.notify('Base class not found: ' .. t .. '.cs', vim.log.levels.WARN)
+            end
+            return
+        end
+    end
+    vim.notify('No base class found in class declaration', vim.log.levels.WARN)
+end
+
 return M
