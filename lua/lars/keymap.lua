@@ -30,6 +30,39 @@ vim.keymap.set('n', 'zR', 'zR', { desc = "Open all folds" })
 vim.keymap.set('n', 'zm', 'zm', { desc = "Fold more (reduce foldlevel)" })
 vim.keymap.set('n', 'zr', 'zr', { desc = "Fold less (increase foldlevel)" })
 
+-- Spelling (descriptions all contain "Spelling" for easy filtering)
+vim.keymap.set('n', 'z=', 'z=', { desc = "Spelling: suggest corrections" })
+vim.keymap.set('n', 'zg', 'zg', { desc = "Spelling: add word to spellfile" })
+vim.keymap.set('n', 'zw', 'zw', { desc = "Spelling: mark word as bad" })
+vim.keymap.set('n', 'zug', 'zug', { desc = "Spelling: undo add to spellfile" })
+vim.keymap.set('n', 'zuw', 'zuw', { desc = "Spelling: undo mark as bad" })
+vim.keymap.set('n', ']s', ']s', { desc = "Spelling: next misspelled word" })
+vim.keymap.set('n', '[s', '[s', { desc = "Spelling: previous misspelled word" })
+
+-- g-commands
+vim.keymap.set('n', 'g<', 'g<', { desc = "Reopen last pager (ui2)" })
+vim.keymap.set('n', 'gv', 'gv', { desc = "Reselect last visual selection" })
+vim.keymap.set('n', 'gi', 'gi', { desc = "Insert at last insert position" })
+vim.keymap.set('n', 'gq', 'gq', { desc = "Format text (motion)" })
+vim.keymap.set('n', 'g~', 'g~', { desc = "Toggle case (motion)" })
+vim.keymap.set('n', 'gu', 'gu', { desc = "Lowercase (motion)" })
+vim.keymap.set('n', 'gU', 'gU', { desc = "Uppercase (motion)" })
+
+-- Macros
+vim.keymap.set('n', 'qa', 'qa', { desc = "Macro: record into register a" })
+vim.keymap.set('n', 'qq', 'qq', { desc = "Macro: record into register q" })
+vim.keymap.set('n', 'q', 'q', { desc = "Macro: stop recording" })
+vim.keymap.set('n', '@a', '@a', { desc = "Macro: play register a" })
+vim.keymap.set('n', '@@', '@@', { desc = "Macro: replay last macro" })
+vim.keymap.set('n', 'Q', 'Q', { desc = "Macro: replay last recorded macro" })
+
+-- Misc native commands
+vim.keymap.set('n', '<C-a>', '<C-a>', { desc = "Increment number under cursor" })
+vim.keymap.set('n', '<C-x>', '<C-x>', { desc = "Decrement number under cursor" })
+vim.keymap.set('n', '@:', '@:', { desc = "Repeat last command-line command" })
+vim.keymap.set('n', 'q:', 'q:', { desc = "Open command-line history window" })
+vim.keymap.set('n', 'q/', 'q/', { desc = "Open search history window" })
+
 -- Terminal mode: exit and window navigation
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 vim.keymap.set('t', '<C-w>h', '<C-\\><C-n><C-w>h', { desc = 'Terminal: move left' })
