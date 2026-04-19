@@ -14,6 +14,16 @@ vim.filetype.add({
 })
 vim.treesitter.language.register("xml", "xaml")
 
+-- Neovim 0.12 auto-starts treesitter highlighting for filetypes matching
+-- a parser name, but "xaml" is a custom filetype using the "xml" parser,
+-- so we need to start it explicitly.
+vim.api.nvim_create_autocmd("FileType", {
+	pattern = "xaml",
+	callback = function()
+		vim.treesitter.start()
+	end,
+})
+
 -- Map axsg-lsp custom semantic token types to Neovim highlight groups
 vim.api.nvim_create_autocmd("LspTokenUpdate", {
 	callback = function(args)

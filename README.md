@@ -32,9 +32,9 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 
 | Dependency | Notes |
 |------------|-------|
-| [Neovim](https://neovim.io/) >= 0.9 | |
+| [Neovim](https://neovim.io/) >= 0.12 | |
 | [mingw64](https://winlibs.com/) | Required to build telescope-fzf-native |
-| [zig](https://ziglang.org/) *(auto-installed)* | Required to compile treesitter parsers. Auto-installed via `winget` on first Lazy build if no C compiler is found -- restart Neovim after, then run `:Lazy build nvim-treesitter` |
+| [tree-sitter-cli](https://tree-sitter.github.io/) *(auto-installed)* | Required to compile treesitter parsers. Auto-installed via `winget` on first startup if not found -- restart Neovim after install |
 | [CMake](https://cmake.org/) | |
 | [ripgrep](https://github.com/BurntSushi/ripgrep) | **Do not use the winget version** -- it is broken. Use an alternative installation method. |
 | [Nerd Font: CaskaydiaCove NFM](https://www.nerdfonts.com/) | Required for icons in lualine and nvim-tree |
@@ -177,11 +177,6 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 
 > `lua/plugins/textedit/camelcasemotion.lua`
 > Navigate inside `camelCase` and `PascalCase` words using leader-prefixed motions.
-
-### Treesitter -- Incremental Selection
-
-> `lua/plugins/lspandcompletion/treesiter.lua`
-> Structurally expand/shrink the visual selection by syntax node.
 
 ---
 
