@@ -332,6 +332,30 @@ describe("plugin smoke tests", function()
         end)
     end)
 
+    describe("gitsigns", function()
+        it("loads without error", function()
+            local ok, err = h.force_load_plugin("gitsigns.nvim")
+            assert.is_true(ok, "gitsigns failed to load: " .. tostring(err))
+        end)
+
+        it("gitsigns module is requireable", function()
+            local ok, err = pcall(function()
+                require("gitsigns")
+            end)
+            assert.is_true(ok, "gitsigns failed to require: " .. tostring(err))
+        end)
+
+        it("gitsigns.stage_buffer is a function", function()
+            local gs = require("gitsigns")
+            assert.equals("function", type(gs.stage_buffer), "stage_buffer should be a function")
+        end)
+
+        it("gitsigns.diffthis is a function", function()
+            local gs = require("gitsigns")
+            assert.equals("function", type(gs.diffthis), "diffthis should be a function")
+        end)
+    end)
+
     describe("xaml-lsp", function()
         -- When Mason/xaml-lsp is not installed, the plugin returns {} early
         -- and skips vim.lsp.config registration. Detect this so tests that

@@ -34,21 +34,40 @@ return {
 		},
 		keys = {
 			{ '<leader>ff', function () require('telescope.builtin').find_files() end, desc='telescope fuzzy find files' },
-			{ '<c-p>', function () require('telescope.builtin').git_files() end, desc='telescope fuzzy find git files'},
-			{ '<leader>fg', function () require('telescope.builtin').live_grep() end, desc='telescope fuzzy find string'},
-			{ '<leader>fs', function () require('telescope.builtin').grep_string() end, desc='telescope find string under cursor'},
+			{ '<c-p>', function () require('lars.telescope-submodule').wrap_git_picker('git_files', {
+				git_command = { "git", "ls-files", "--exclude-standard", "--cached", "--recurse-submodules" },
+			})() end, desc='telescope fuzzy find git files'},
+			{ '<leader>fg', function () require('lars.telescope-submodule').wrap_git_picker('live_grep')() end, desc='telescope fuzzy find string'},
+			{ '<leader>fs', function () require('lars.telescope-submodule').wrap_git_picker('grep_string')() end, desc='telescope find string under cursor'},
 			{ '<leader>fu', function () require('telescope.builtin').buffers() end, desc='telescope fuzzy find buffer'},
 			{ '<leader>fh', function () require('telescope.builtin').help_tags() end, desc='telescope fuzzy help search'},
 			{ '<leader>fr', function () require('telescope.builtin').resume() end, desc='telescope repeat last search'},
-			{ '<leader>fl', function () require('telescope.builtin').git_commits() end, desc='teslescope fuzzy find git commits'},
-			{ '<leader>fc', function () require('telescope.builtin').git_bcommits() end, desc='telescope fuzzy find branch commits'},
-			{ '<leader>fb', function () require('telescope.builtin').git_branches() end, desc='telescope fuzzy find branch'},
+			{ '<leader>fl', function () require('lars.telescope-submodule').wrap_git_picker('git_commits')() end, desc='telescope fuzzy find git commits'},
+			{ '<leader>fc', function () require('lars.telescope-submodule').wrap_git_picker('git_bcommits')() end, desc='telescope fuzzy find branch commits'},
+			{ '<leader>fb', function () require('lars.telescope-submodule').wrap_git_picker('git_branches')() end, desc='telescope fuzzy find branch'},
+			{ '<leader>fS', function () require('lars.telescope-submodule').wrap_git_picker('git_status', {
+				previewer = require('lars.git-status-previewer')(),
+			})() end, desc='telescope git status'},
 		{ '<leader>fk', function()
 			local actions     = require('telescope.actions')
 			local action_state = require('telescope.actions.state')
 			local pickers     = require('telescope.pickers')
 			local finders     = require('telescope.finders')
 			local keymaps = {}
+			-- Show submodule picker shortcuts only when a submodule-aware picker is active
+			local tsm = require('lars.telescope-submodule')
+			if tsm._picker_active then
+				vim.list_extend(keymaps, {
+					{ mode = 'i', lhs = '<C-s>', desc = '[picker] Submodule: cycle to next' },
+					{ mode = 'i', lhs = '<C-a>', desc = '[picker] Submodule: cycle to previous' },
+					{ mode = 'i', lhs = '<C-g>', desc = '[picker] Submodule: pick from list' },
+				})
+				if tsm._state.picker_name == 'git_status' then
+					vim.list_extend(keymaps, {
+						{ mode = 'i', lhs = '<C-t>', desc = '[picker] Git: toggle stage/unstage' },
+					})
+				end
+			end
 			for _, mode in ipairs({ 'n', 'v', 'i', 'x', 'o', 't' }) do
 				-- Buffer-local keymaps first (marked with [buf])
 				for _, km in ipairs(vim.api.nvim_buf_get_keymap(0, mode)) do

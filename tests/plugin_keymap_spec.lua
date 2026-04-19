@@ -14,6 +14,7 @@ describe("plugin keymaps", function()
             { "<leader>fl", "commits" },
             { "<leader>fc", "branch commits" },
             { "<leader>fb", "branch" },
+            { "<leader>fS", "git status" },
             { "<leader>fk", "keymap" },
         }
         for _, k in ipairs(keys) do
@@ -202,5 +203,71 @@ describe("plugin keymaps", function()
         it("<leader>ut (theme switcher)", function()
             assert.is_true(h.has_keymap("n", "<leader>ut"), "<leader>ut not found")
         end)
+    end)
+
+    describe("gitsigns", function()
+        -- gitsigns uses on_attach so keymaps only exist in buffers with git.
+        -- We manually invoke the on_attach callback from the plugin spec to
+        -- register buffer-local keymaps on the current buffer.
+        h.force_load_plugin("gitsigns.nvim")
+        local specs = require("lazy").plugins()
+        for _, spec in ipairs(specs) do
+            if spec.name == "gitsigns.nvim" and spec.opts and spec.opts.on_attach then
+                spec.opts.on_attach(vim.api.nvim_get_current_buf())
+                break
+            end
+        end
+
+        local normal_keys = {
+            { "]h",          "next hunk" },
+            { "[h",          "prev hunk" },
+            { "<leader>hs",  "stage hunk" },
+            { "<leader>hr",  "reset hunk" },
+            { "<leader>hu",  "undo stage hunk" },
+            { "<leader>hS",  "stage buffer" },
+            { "<leader>hR",  "reset buffer" },
+            { "<leader>hp",  "preview hunk inline" },
+            { "<leader>hd",  "diff this" },
+            { "<leader>htd", "toggle deleted" },
+            { "<leader>htb", "toggle line blame" },
+        }
+        for _, k in ipairs(normal_keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                -- Buffer-local keymaps from on_attach; check current buffer
+                local found = h.has_keymap("n", k[1])
+                if not found then
+                    -- Also check buffer-local keymaps
+                    local maps = vim.api.nvim_buf_get_keymap(0, "n")
+                    for _, m in ipairs(maps) do
+                        if m.lhs == vim.api.nvim_replace_termcodes(k[1]:gsub("<leader>", vim.g.mapleader or "\\"), true, true, true) then
+                            found = true
+                            break
+                        end
+                    end
+                end
+                assert.is_true(found, k[1] .. " not found")
+            end)
+        end
+
+        -- Visual mode keymaps
+        local visual_keys = {
+            { "<leader>hs", "stage hunk (visual)" },
+            { "<leader>hr", "reset hunk (visual)" },
+        }
+        for _, k in ipairs(visual_keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                local found = h.has_keymap("v", k[1])
+                if not found then
+                    local maps = vim.api.nvim_buf_get_keymap(0, "v")
+                    for _, m in ipairs(maps) do
+                        if m.lhs == vim.api.nvim_replace_termcodes(k[1]:gsub("<leader>", vim.g.mapleader or "\\"), true, true, true) then
+                            found = true
+                            break
+                        end
+                    end
+                end
+                assert.is_true(found, k[1] .. " not found in visual mode")
+            end)
+        end
     end)
 end)
