@@ -15,6 +15,30 @@ describe("plugin smoke tests", function()
             assert.is_true(ok, "harpoon list:add() errored: " .. tostring(err))
         end)
 
+        it("list:add() stores relative path (no backslashes)", function()
+            local harpoon = require("harpoon")
+            -- Clear the list
+            local list = harpoon:list()
+            for i = list:length(), 1, -1 do
+                list:remove_at(i)
+            end
+            -- Add current buffer
+            list:add()
+            if list:length() > 0 then
+                local item = list:get(1)
+                assert.is_not_nil(item, "expected a list item")
+                assert.is_nil(
+                    item.value:match("\\"),
+                    "harpoon path contains backslashes: " .. item.value
+                )
+                -- Should not be an absolute path (no drive letter like C:)
+                assert.is_nil(
+                    item.value:match("^%a:"),
+                    "harpoon path is absolute: " .. item.value
+                )
+            end
+        end)
+
         it("ui:toggle_quick_menu() does not error", function()
             local ok, err = pcall(function()
                 local harpoon = require("harpoon")
