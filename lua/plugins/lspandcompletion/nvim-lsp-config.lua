@@ -3,7 +3,7 @@ return {
 	{
 		'neovim/nvim-lspconfig',
 		dependencies = { 'williamboman/mason.nvim', "folke/neodev.nvim"},
-		ft = { 'rust', 'c', 'cpp', 'toml', 'lua' },
+		event = 'LspAttach',
 		init = function ()
 			vim.keymap.set('n', 'gl', vim.diagnostic.open_float, { desc = "Show line diagnostics" })
 			vim.keymap.set('n', 'dn', vim.diagnostic.goto_prev, { desc = "Previous diagnostic" })
@@ -33,8 +33,6 @@ return {
 			})
 		end,
 		config = function ()
-			local lspconfig = require('lspconfig')
-
 			-- Lazy-load race fix: this config runs in response to a FileType
 			-- event, but lspconfig.setup() registers its own FileType autocmd
 			-- which missed the event that triggered us. Re-attach for any
@@ -50,8 +48,9 @@ return {
 				end
 			end
 
-			-- Add lspconfig.setup() calls for non-Roslyn servers here
-			-- (Roslyn/C# is handled by roslyn.nvim)
+			-- configuring lsps here is deprecated.
+			-- configure separate files via
+			-- vim.lsp.config and vim.lsp.enable
 
 			reattach_buffers()
 		end,
