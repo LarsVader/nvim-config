@@ -3,6 +3,126 @@ return {
 		'tpope/vim-fugitive',
 		dependencies = { 'tpope/vim-rhubarb', },
 		cmd = 'G',
+		config = function()
+			-- When a commit editor opens, show it alongside status in two side-by-side floats
+			vim.api.nvim_create_autocmd('FileType', {
+				pattern = 'gitcommit',
+				group = vim.api.nvim_create_augroup('FugitiveCommitLayout', { clear = true }),
+				callback = function(args)
+					local commit_buf = args.buf
+					vim.schedule(function()
+						if not vim.api.nvim_buf_is_valid(commit_buf) then return end
+
+						-- Tear down any existing fugitive float infrastructure
+						pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveFloat')
+						for _, win in ipairs(vim.api.nvim_list_wins()) do
+							if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
+								local b = vim.api.nvim_win_get_buf(win)
+								vim.bo[b].bufhidden = 'hide'
+								vim.api.nvim_win_close(win, false)
+							end
+						end
+
+						-- Close the regular window the commit buf is in (if any)
+						local cw = vim.fn.bufwinid(commit_buf)
+						if cw ~= -1 then
+							vim.bo[commit_buf].bufhidden = 'hide'
+							vim.api.nvim_win_close(cw, false)
+						end
+
+						-- Get a fresh status buffer via :G, then close its split
+						vim.cmd('G')
+						local status_buf = vim.api.nvim_get_current_buf()
+						vim.bo[status_buf].bufhidden = 'hide'
+						vim.api.nvim_win_close(0, false)
+
+						-- Two side-by-side floats
+						local total_w = math.floor(vim.o.columns * 0.9)
+						local h = math.floor(vim.o.lines * 0.9)
+						local commit_w = math.floor(total_w * 0.5)
+						local status_w = total_w - commit_w - 2
+						local row = math.floor((vim.o.lines - h) / 2)
+						local col = math.floor((vim.o.columns - total_w) / 2)
+
+						-- Left: commit editor
+						local commit_float = vim.api.nvim_open_win(commit_buf, true, {
+							relative = 'editor',
+							width = commit_w, height = h,
+							col = col, row = row,
+							style = 'minimal', border = 'rounded',
+						})
+
+						-- Right: status
+						local status_float = vim.api.nvim_open_win(status_buf, false, {
+							relative = 'editor',
+							width = status_w, height = h,
+							col = col + commit_w + 2, row = row,
+							style = 'minimal', border = 'rounded',
+						})
+
+						-- Focus the commit editor
+						vim.api.nvim_set_current_win(commit_float)
+
+						-- Clean up both floats when either one closes
+						local cg = vim.api.nvim_create_augroup('FugitiveCommitCleanup', { clear = true })
+						vim.api.nvim_create_autocmd('WinClosed', {
+							group = cg,
+							callback = function()
+								vim.schedule(function()
+									if not vim.api.nvim_win_is_valid(commit_float)
+										or not vim.api.nvim_win_is_valid(status_float) then
+										if vim.api.nvim_win_is_valid(status_float) then
+											vim.api.nvim_win_close(status_float, true)
+										end
+										if vim.api.nvim_buf_is_valid(status_buf) then
+											vim.api.nvim_buf_delete(status_buf, { force = true })
+										end
+										pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveCommitCleanup')
+									end
+								end)
+							end,
+						})
+					end)
+				end,
+			})
+			-- Move git-filetype buffers (:G log, :G show, etc.) into a float
+			vim.api.nvim_create_autocmd('FileType', {
+				pattern = 'git',
+				group = vim.api.nvim_create_augroup('FugitiveGitFloat', { clear = true }),
+				callback = function(args)
+					local buf = args.buf
+					vim.schedule(function()
+						if not vim.api.nvim_buf_is_valid(buf) then return end
+						local win = vim.fn.bufwinid(buf)
+						if win == -1 then return end
+						-- Skip if already in a float
+						local wc = vim.api.nvim_win_get_config(win)
+						if wc.relative ~= '' then return end
+						-- Skip if it's the only window (e.g. :G diff | only)
+						local regular = 0
+						for _, w in ipairs(vim.api.nvim_list_wins()) do
+							if vim.api.nvim_win_is_valid(w) then
+								local c = vim.api.nvim_win_get_config(w)
+								if c.relative == '' then regular = regular + 1 end
+							end
+						end
+						if regular <= 1 then return end
+						-- Move to float
+						vim.bo[buf].bufhidden = 'hide'
+						vim.api.nvim_win_close(win, false)
+						local width = math.floor(vim.o.columns * 0.9)
+						local height = math.floor(vim.o.lines * 0.9)
+						local float_win = vim.api.nvim_open_win(buf, true, {
+							relative = 'editor',
+							width = width, height = height,
+							col = math.floor((vim.o.columns - width) / 2),
+							row = math.floor((vim.o.lines - height) / 2),
+							style = 'minimal', border = 'rounded',
+						})
+					end)
+				end,
+			})
+		end,
 		keys = {
 			{ '<leader>gs', function()
 				local function float_opts()

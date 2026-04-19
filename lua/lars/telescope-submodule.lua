@@ -133,6 +133,141 @@ M._picker_active = false
 --- Persistent state for the currently open picker session.
 M._state = {}
 
+--- Floating window for commit message preview (tracked for cleanup).
+local commit_msg_float_win = nil
+local commit_msg_timer = nil
+
+--- Close the commit message float and poll timer if open.
+local function close_commit_msg_float()
+	if commit_msg_timer then
+		commit_msg_timer:stop()
+		commit_msg_timer:close()
+		commit_msg_timer = nil
+	end
+	if commit_msg_float_win and vim.api.nvim_win_is_valid(commit_msg_float_win) then
+		local buf = vim.api.nvim_win_get_buf(commit_msg_float_win)
+		vim.api.nvim_win_close(commit_msg_float_win, true)
+		if vim.api.nvim_buf_is_valid(buf) then
+			vim.api.nvim_buf_delete(buf, { force = true })
+		end
+	end
+	commit_msg_float_win = nil
+end
+
+--- Open a standalone float with commit message lines (after telescope is closed).
+---@param lines string[]
+local function open_standalone_commit_float(lines)
+	local float_buf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+	vim.bo[float_buf].modifiable = false
+	vim.bo[float_buf].bufhidden = 'wipe'
+
+	local max_w = math.min(80, vim.o.columns - 4)
+	local width = 40
+	for _, l in ipairs(lines) do
+		width = math.max(width, #l)
+	end
+	width = math.min(width, max_w)
+	local height = math.min(#lines, math.floor(vim.o.lines * 0.5))
+
+	local win = vim.api.nvim_open_win(float_buf, true, {
+		relative = 'editor',
+		width = width, height = height,
+		col = math.floor((vim.o.columns - width) / 2),
+		row = math.floor((vim.o.lines - height) / 2),
+		style = 'minimal',
+		border = 'rounded',
+		title = ' Commit Message (q to close) ',
+		title_pos = 'center',
+	})
+
+	local function close_and_resume()
+		vim.api.nvim_win_close(win, true)
+		vim.schedule(function()
+			require('telescope.builtin').resume()
+		end)
+	end
+	vim.keymap.set('n', 'q', close_and_resume, { buffer = float_buf })
+	vim.keymap.set('n', '<Esc>', close_and_resume, { buffer = float_buf })
+end
+
+--- Show the full commit message for the selected telescope entry in a float.
+--- K once = preview, K again = close telescope and open standalone float for yanking.
+---@param prompt_bufnr number
+---@param cwd string|nil
+local function show_commit_message(prompt_bufnr, cwd)
+	-- If float is already open: close telescope, reopen as standalone for yanking
+	if commit_msg_float_win and vim.api.nvim_win_is_valid(commit_msg_float_win) then
+		local float_buf = vim.api.nvim_win_get_buf(commit_msg_float_win)
+		local lines = vim.api.nvim_buf_get_lines(float_buf, 0, -1, false)
+		close_commit_msg_float()
+		require("telescope.actions").close(prompt_bufnr)
+		vim.schedule(function()
+			open_standalone_commit_float(lines)
+		end)
+		return
+	end
+
+	local action_state = require("telescope.actions.state")
+	local entry = action_state.get_selected_entry()
+	if not entry or not entry.value then return end
+
+	local hash = tostring(entry.value)
+	local cmd = cwd
+		and { "git", "-C", cwd, "log", "--format=%B", "-n1", hash }
+		or  { "git", "log", "--format=%B", "-n1", hash }
+	local lines = vim.fn.systemlist(cmd)
+
+	-- Trim trailing blank lines
+	while #lines > 0 and lines[#lines] == "" do
+		table.remove(lines)
+	end
+	if #lines == 0 then return end
+
+	local float_buf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+	vim.bo[float_buf].modifiable = false
+
+	-- Size: fit content, capped
+	local max_w = math.min(80, vim.o.columns - 4)
+	local width = 40
+	for _, l in ipairs(lines) do
+		width = math.max(width, #l)
+	end
+	width = math.min(width, max_w)
+	local height = math.min(#lines, math.floor(vim.o.lines * 0.3))
+
+	commit_msg_float_win = vim.api.nvim_open_win(float_buf, false, {
+		relative = 'editor',
+		width = width, height = height,
+		col = math.floor((vim.o.columns - width) / 2),
+		row = math.floor((vim.o.lines - height) / 2),
+		style = 'minimal',
+		border = 'rounded',
+		title = ' Commit Message (K to enter) ',
+		title_pos = 'center',
+	})
+
+	-- Poll for selection changes to auto-close (CursorMoved doesn't fire
+	-- for telescope selection changes since they happen via API)
+	commit_msg_timer = vim.uv.new_timer()
+	commit_msg_timer:start(100, 100, vim.schedule_wrap(function()
+		if not commit_msg_float_win or not vim.api.nvim_win_is_valid(commit_msg_float_win) then
+			close_commit_msg_float()
+			return
+		end
+		-- Close if telescope is gone
+		if not vim.api.nvim_buf_is_valid(prompt_bufnr) or vim.fn.bufwinid(prompt_bufnr) == -1 then
+			close_commit_msg_float()
+			return
+		end
+		local ok, cur = pcall(action_state.get_selected_entry)
+		if not ok or not cur or tostring(cur.value) ~= hash then
+			close_commit_msg_float()
+		end
+	end))
+end
+
 --- Default prompt titles for wrapped pickers.
 local default_titles = {
     git_files    = "Git Files",
@@ -246,12 +381,22 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                 vim.keymap.set(mode, lhs, fn, { buffer = prompt_bufnr, desc = desc })
             end
 
-            -- Clear active flag when picker closes
+            -- Clear active flag and close commit msg float when picker closes
             vim.api.nvim_create_autocmd("BufDelete", {
                 buffer = prompt_bufnr,
                 once = true,
-                callback = function() M._picker_active = false end,
+                callback = function()
+                    M._picker_active = false
+                    close_commit_msg_float()
+                end,
             })
+
+            -- Commit message preview for commit pickers
+            if picker_name == "git_commits" or picker_name == "git_bcommits" then
+                buf_set("n", "K", function()
+                    show_commit_message(prompt_bufnr, cwd)
+                end, "Show full commit message")
+            end
 
             buf_set("i", "<C-s>", function()
                 actions.close(prompt_bufnr)
@@ -433,7 +578,7 @@ function M.wrap_git_picker(picker_name, base_opts)
         local git_root = M.git_toplevel(vim.fn.getcwd())
         if not git_root then
             require("telescope.builtin")[picker_name](
-                M._apply_git_status_remap(picker_name, base_opts)
+                M._apply_picker_mappings(picker_name, base_opts)
             )
             return
         end
@@ -442,7 +587,7 @@ function M.wrap_git_picker(picker_name, base_opts)
         if #submodules <= 1 then
             -- No submodules — plain picker
             require("telescope.builtin")[picker_name](
-                M._apply_git_status_remap(picker_name, base_opts)
+                M._apply_picker_mappings(picker_name, base_opts)
             )
             return
         end
@@ -452,30 +597,47 @@ function M.wrap_git_picker(picker_name, base_opts)
     end
 end
 
---- For git_status without submodules: remap staging from <Tab> to <C-t>.
+--- Apply extra mappings for non-submodule pickers (git_status remaps, commit message preview).
 ---@param picker_name string
 ---@param opts table|nil
 ---@return table
-function M._apply_git_status_remap(picker_name, opts)
+function M._apply_picker_mappings(picker_name, opts)
     opts = opts or {}
-    if picker_name ~= "git_status" then return opts end
 
-    return vim.tbl_deep_extend("force", opts, {
-        attach_mappings = function(prompt_bufnr)
-            local actions = require("telescope.actions")
-            -- Override after telescope finishes its own mapping setup
-            vim.schedule(function()
-                if not vim.api.nvim_buf_is_valid(prompt_bufnr) then return end
-                vim.keymap.set({ "i", "n" }, "<Tab>", function()
-                    actions.move_selection_next(prompt_bufnr)
-                end, { buffer = prompt_bufnr, desc = "Next entry" })
-                vim.keymap.set({ "i", "n" }, "<C-t>", function()
-                    actions.git_staging_toggle(prompt_bufnr)
-                end, { buffer = prompt_bufnr, desc = "Git: toggle stage/unstage" })
-            end)
-            return true
-        end,
-    })
+    if picker_name == "git_commits" or picker_name == "git_bcommits" then
+        return vim.tbl_deep_extend("force", opts, {
+            attach_mappings = function(prompt_bufnr)
+                vim.keymap.set("n", "K", function()
+                    show_commit_message(prompt_bufnr)
+                end, { buffer = prompt_bufnr, desc = "Show full commit message" })
+                vim.api.nvim_create_autocmd("BufDelete", {
+                    buffer = prompt_bufnr, once = true,
+                    callback = function() close_commit_msg_float() end,
+                })
+                return true
+            end,
+        })
+    end
+
+    if picker_name == "git_status" then
+        return vim.tbl_deep_extend("force", opts, {
+            attach_mappings = function(prompt_bufnr)
+                local actions = require("telescope.actions")
+                vim.schedule(function()
+                    if not vim.api.nvim_buf_is_valid(prompt_bufnr) then return end
+                    vim.keymap.set({ "i", "n" }, "<Tab>", function()
+                        actions.move_selection_next(prompt_bufnr)
+                    end, { buffer = prompt_bufnr, desc = "Next entry" })
+                    vim.keymap.set({ "i", "n" }, "<C-t>", function()
+                        actions.git_staging_toggle(prompt_bufnr)
+                    end, { buffer = prompt_bufnr, desc = "Git: toggle stage/unstage" })
+                end)
+                return true
+            end,
+        })
+    end
+
+    return opts
 end
 
 return M
