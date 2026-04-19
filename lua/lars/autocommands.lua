@@ -30,6 +30,25 @@ if vim.fn.has("win32") == 1 then
 	})
 end
 
+-- Clean up stale ShaDa temp files left behind when Neovim is
+-- force-closed (e.g. clicking the window X button).
+-- Only removes files from before today to avoid interfering
+-- with other running instances.
+if vim.fn.has("win32") == 1 then
+	local shada_dir = vim.fn.stdpath("data") .. "/shada"
+	local today = os.date("*t")
+	local today_start = os.time({ year = today.year, month = today.month, day = today.day })
+	for name, type in vim.fs.dir(shada_dir) do
+		if type == "file" and name:match("^main%.shada%.tmp") then
+			local path = shada_dir .. "/" .. name
+			local stat = vim.uv.fs_stat(path)
+			if stat and stat.mtime.sec < today_start then
+				os.remove(path)
+			end
+		end
+	end
+end
+
 vim.api.nvim_create_autocmd("FileType", {
 	pattern = "cs",
 	callback = function()
