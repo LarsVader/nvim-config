@@ -12,11 +12,15 @@ This is a personal Neovim configuration using **Lazy.nvim** for plugin managemen
 init.lua                  → requires "lars"
 lua/lars/init.lua         → orchestrates core config (options, keymaps, autocommands, plugin-load)
 lua/lars/plugin-load.lua  → bootstraps Lazy.nvim and calls lazy.setup("plugins")
+lua/lars/options.lua      → editor options (indentation, GUI/Neovide settings)
+lua/lars/keymap.lua       → global keymaps (leader = Space)
+lua/lars/autocommands.lua → autocommands (transparency, etc.)
+lua/lars/alternate.lua    → alternate file navigation
 lua/plugins/imports.lua   → imports all plugin category subdirectories
 lua/plugins/<category>/   → each plugin has its own .lua file returning a Lazy spec table
 ```
 
-Plugin categories: `navigation/`, `lspandcompletion/`, `debug/`, `textedit/`, `sourcecontrol/`, `ui/`
+Plugin categories: `ai/`, `debug/`, `lspandcompletion/`, `navigation/`, `sourcecontrol/`, `textedit/`, `ui/`
 
 ## Plugin Conventions
 
@@ -53,21 +57,56 @@ return {
 - **Lua**: neodev.nvim (for Neovim API completion)
 - **XAML**: axsg-lsp (XamlToCSharpGenerator, dotnet tool, stdio transport)
 
-## Testing
+## Testing (MANDATORY)
 
-After any config change, run the relevant spec files individually (do NOT use `run_all.sh` — it hangs on Windows):
+After ANY config change, you MUST:
+
+### 1. Update the relevant test spec
+
+- New/changed global keymaps → update `tests/keymap_spec.lua`
+- New/changed plugin keymaps → update `tests/plugin_keymap_spec.lua`
+- New plugin added → add smoke test to `tests/plugin_smoke_spec.lua` AND keymap entries to `tests/plugin_keymap_spec.lua`
+- Changed options → update `tests/options_spec.lua`
+- Changed alternate.lua → update `tests/alternate_spec.lua`
+
+### 2. Run tests for each changed spec file individually
 
 ```sh
-nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('tests/<spec>.lua')"
+nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('tests/<name>_spec.lua')" 2>&1
 ```
 
-**LSP integration tests** are separate (need event loop, ~60s timeout per server):
+**WARNING**: Do NOT use `bash tests/run_all.sh` from Claude Code — it hangs on Windows because nvim inside `$(...)` bash subshells never exits. Always run individual spec files directly.
+
+### 3. All tests must pass before reporting the task as done
+
+Exit code 127 from headless nvim is normal — check for `Failed : 0` in the output.
+
+### Test conventions
+
+- Spec files use `dofile(vim.fn.stdpath("config") .. "/tests/helpers.lua")` for helpers (NOT `require`)
+- `helpers.lua` provides: `find_keymap(mode, lhs)`, `has_keymap(mode, lhs)`, `feed(keys)`, `force_load_plugin(name)`, `get_buf_lines()`, `set_buf_lines(lines)`
+- `find_keymap` auto-normalizes `<leader>` and uppercases `<C-x>` modifier letters
+
+### LSP integration tests
+
+Separate from unit tests (need event loop, ~60s timeout per server):
 
 ```sh
 cd ~/AppData/Local/nvim && bash tests/run_lsp.sh
 ```
 
 Run LSP tests after changes to `lspandcompletion/` files, Mason packages, or .NET SDK updates.
+
+## Before Making Changes
+
+1. Read relevant existing files before modifying them
+2. Check `lua/plugins/imports.lua` if adding a new plugin category
+
+## After Making Changes
+
+1. Verify config loads: `nvim --headless +q 2>&1`
+2. Run changed spec files individually (see Testing above)
+3. Check if `README.md` needs updating (new keymaps, dependencies, behaviours)
 
 ## Notable Keymaps
 
