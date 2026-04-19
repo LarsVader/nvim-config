@@ -24,6 +24,15 @@ return {
 			{ "<leader>ut", "<cmd>Themery<cr>", desc = "Theme switcher" },
 		},
 		config = function()
+			-- Suppress false-positive deprecation warning (Themery bug:
+			-- normalizePaths sets themeConfigFile even when not configured).
+			-- Temporarily redirect print to swallow the one known message.
+			local _print = print
+			print = function(msg)
+				if type(msg) == "string" and msg:match("themeConfigFile") then return end
+				_print(msg)
+			end
+
 			require("themery").setup({
 				themes = {
 					-- Nightfox variants
@@ -57,6 +66,7 @@ return {
 				},
 				livePreview = true,
 			})
+			print = _print
 
 			-- Themery restores the persisted theme on setup.
 			-- On first run (no state file yet), fall back to carbonfox.
