@@ -432,7 +432,14 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
     local base_title = default_titles[picker_name] or picker_name
     local prompt_title = string.format("%s [%s]", base_title, sm_label_dirty(git_root, current_sm))
 
-    local opts = vim.tbl_deep_extend("force", base_opts or {}, {
+    -- git ls-files: --recurse-submodules and --others are incompatible, so we
+    -- combine two commands via bash to get tracked (incl. submodule) + untracked files.
+    local sm_opts = vim.deepcopy(base_opts or {})
+    if picker_name == "git_files" then
+        sm_opts.git_command = M._git_files_command()
+    end
+
+    local opts = vim.tbl_deep_extend("force", sm_opts, {
         cwd          = cwd,
         prompt_title = prompt_title,
         -- For git_status: provide a custom entry_maker that normalizes paths on Windows
@@ -541,6 +548,30 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
     require("telescope.builtin")[picker_name](opts)
 end
 
+--- Build a git_command that lists tracked files (incl. submodules) + untracked files.
+--- git ls-files --recurse-submodules and --others are incompatible, so we use bash
+--- to run both and deduplicate.
+---@return string[]
+function M._git_files_command()
+    return {
+        "bash", "-c",
+        "{ git ls-files --exclude-standard --cached --recurse-submodules; git ls-files --exclude-standard --others; } | sort -u",
+    }
+end
+
+--- Same as _git_files_command but for a specific cwd (used in preview_command).
+---@param cwd string
+---@return string[]
+function M._git_files_command_with_cwd(cwd)
+    return {
+        "bash", "-c",
+        string.format(
+            "cd %q && { git ls-files --exclude-standard --cached --recurse-submodules; git ls-files --exclude-standard --others; } | sort -u",
+            cwd:gsub("\\", "/")
+        ),
+    }
+end
+
 --- Git command that produces the preview lines for each picker type.
 ---@param picker_name string
 ---@param cwd string
@@ -548,14 +579,7 @@ end
 ---@return string[] command args for vim.fn.systemlist
 local function preview_command(picker_name, cwd, base_opts)
     if picker_name == "git_files" then
-        -- Honour any custom git_command from base_opts (e.g. --recurse-submodules)
-        if base_opts and base_opts.git_command then
-            local cmd = vim.deepcopy(base_opts.git_command)
-            table.insert(cmd, 2, "-C")
-            table.insert(cmd, 3, cwd)
-            return cmd
-        end
-        return { "git", "-C", cwd, "ls-files", "--exclude-standard", "--cached" }
+        return M._git_files_command_with_cwd(cwd)
     elseif picker_name == "git_commits" then
         return { "git", "-C", cwd, "log", "--oneline", "--decorate", "-n", "50" }
     elseif picker_name == "git_bcommits" then
@@ -567,9 +591,9 @@ local function preview_command(picker_name, cwd, base_opts)
     elseif picker_name == "git_stash" then
         return { "git", "-C", cwd, "stash", "list" }
     elseif picker_name == "live_grep" or picker_name == "grep_string" then
-        return { "git", "-C", cwd, "ls-files", "--exclude-standard", "--cached" }
+        return { "git", "-C", cwd, "ls-files", "--exclude-standard", "--cached", "--others" }
     end
-    return { "git", "-C", cwd, "ls-files", "--exclude-standard", "--cached" }
+    return { "git", "-C", cwd, "ls-files", "--exclude-standard", "--cached", "--others" }
 end
 
 --- Open a mini-picker to select a submodule, then reopen the git picker.
@@ -680,9 +704,15 @@ function M.wrap_git_picker(picker_name, base_opts)
 
         local submodules = M.get_submodules(git_root)
         if #submodules <= 1 then
-            -- No submodules — plain picker
+            -- No submodules — plain picker with untracked files included
+            local plain_opts = base_opts
+            if picker_name == "git_files" then
+                plain_opts = vim.tbl_deep_extend("force", base_opts or {}, {
+                    git_command = M._git_files_command(),
+                })
+            end
             require("telescope.builtin")[picker_name](
-                M._apply_picker_mappings(picker_name, base_opts)
+                M._apply_picker_mappings(picker_name, plain_opts)
             )
             return
         end
