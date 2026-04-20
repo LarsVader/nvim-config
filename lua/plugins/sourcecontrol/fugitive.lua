@@ -5,6 +5,7 @@ return {
 		cmd = 'G',
 		config = function()
 			-- When a commit editor opens, show it alongside status in two side-by-side floats
+			-- (bufhidden is reset after placing in float so fugitive's :wq commit flow works)
 			vim.api.nvim_create_autocmd('FileType', {
 				pattern = 'gitcommit',
 				group = vim.api.nvim_create_augroup('FugitiveCommitLayout', { clear = true }),
@@ -13,12 +14,19 @@ return {
 					vim.schedule(function()
 						if not vim.api.nvim_buf_is_valid(commit_buf) then return end
 
+						-- Save fugitive's bufhidden (usually 'delete') then protect
+						-- the buffer so it survives window transitions
+						local orig_bufhidden = vim.bo[commit_buf].bufhidden
+						vim.bo[commit_buf].bufhidden = 'hide'
+
 						-- Tear down any existing fugitive float infrastructure
 						pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveFloat')
 						for _, win in ipairs(vim.api.nvim_list_wins()) do
 							if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
 								local b = vim.api.nvim_win_get_buf(win)
-								vim.bo[b].bufhidden = 'hide'
+								if b ~= commit_buf then
+									vim.bo[b].bufhidden = 'hide'
+								end
 								vim.api.nvim_win_close(win, false)
 							end
 						end
@@ -26,7 +34,6 @@ return {
 						-- Close the regular window the commit buf is in (if any)
 						local cw = vim.fn.bufwinid(commit_buf)
 						if cw ~= -1 then
-							vim.bo[commit_buf].bufhidden = 'hide'
 							vim.api.nvim_win_close(cw, false)
 						end
 
@@ -59,6 +66,9 @@ return {
 							col = col + commit_w + 2, row = row,
 							style = 'minimal', border = 'rounded',
 						})
+
+						-- Restore fugitive's original bufhidden so :wq triggers commit
+						vim.bo[commit_buf].bufhidden = orig_bufhidden
 
 						-- Focus the commit editor
 						vim.api.nvim_set_current_win(commit_float)
