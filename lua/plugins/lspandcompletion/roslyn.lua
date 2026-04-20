@@ -69,9 +69,14 @@ return {
 			vim.api.nvim_create_autocmd("User", {
 				group = group,
 				pattern = "RoslynInitialized",
-				callback = function()
+				callback = function(ev)
 					initialized = true
 					notify.close()
+
+					-- Refresh diagnostics on all open cs buffers — the first
+					-- buffer opened before the solution loaded will have stale
+					-- diagnostics (all usings flagged as unnecessary).
+					vim.lsp.diagnostic._refresh()
 				end,
 			})
 		end,
