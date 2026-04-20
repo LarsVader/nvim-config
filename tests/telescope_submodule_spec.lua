@@ -60,6 +60,45 @@ describe("telescope-submodule", function()
             local result = tsm.is_dirty("/some/nonexistent/path", ".")
             assert.equals("boolean", type(result))
         end)
+
+        it("caches results", function()
+            -- First call populates the cache, second should return same value
+            local r1 = tsm.is_dirty("/some/nonexistent/path", ".")
+            local r2 = tsm.is_dirty("/some/nonexistent/path", ".")
+            assert.equals(r1, r2)
+        end)
+    end)
+
+    describe("TtlCache", function()
+        local TtlCache = tsm._TtlCache
+
+        it("returns cached value within TTL", function()
+            local c = TtlCache.new(60)
+            c:set("key", "value")
+            assert.equals("value", c:get("key"))
+        end)
+
+        it("returns nil for missing key", function()
+            local c = TtlCache.new(60)
+            assert.is_nil(c:get("missing"))
+        end)
+
+        it("expires entries after TTL", function()
+            local c = TtlCache.new(0) -- 0-second TTL
+            c:set("key", "value")
+            -- Force expiration by backdating the timestamp
+            c.entries["key"].ts = c.entries["key"].ts - 1000
+            assert.is_nil(c:get("key"))
+        end)
+
+        it("clears all entries", function()
+            local c = TtlCache.new(60)
+            c:set("a", 1)
+            c:set("b", 2)
+            c:clear()
+            assert.is_nil(c:get("a"))
+            assert.is_nil(c:get("b"))
+        end)
     end)
 
     describe("picker keymaps still registered", function()

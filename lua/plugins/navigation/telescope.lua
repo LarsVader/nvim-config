@@ -8,7 +8,9 @@ return {
 	{
 		'nvim-telescope/telescope.nvim',
 		dependencies = { 'nvim-lua/plenary.nvim', 'nvim-telescope/telescope-fzf-native.nvim' },
-		opts = {
+		opts = function()
+			local actions = require("telescope.actions")
+			return {
 			extensions = {
 				fzf = {
 					fuzzy = true,                    -- false will only do exact matching
@@ -20,6 +22,16 @@ return {
 			},
 			defaults = {
 				file_ignore_patterns = { "tags", },
+				mappings = {
+					i = {
+						["<Tab>"] = actions.move_selection_previous,
+						["<S-Tab>"] = actions.move_selection_next,
+					},
+					n = {
+						["<Tab>"] = actions.move_selection_previous,
+						["<S-Tab>"] = actions.move_selection_next,
+					},
+				},
 			},
 			pickers = {
 				find_files = {
@@ -29,9 +41,22 @@ return {
 					-- 	"--files",
 					-- 	"--glob",
 					-- },
-				}
+				},
+				git_status = {
+					mappings = {
+						i = {
+							["<Tab>"] = actions.move_selection_previous,
+							["<S-Tab>"] = actions.move_selection_next,
+						},
+						n = {
+							["<Tab>"] = actions.move_selection_previous,
+							["<S-Tab>"] = actions.move_selection_next,
+						},
+					},
+				},
 			}
-		},
+		}
+		end,
 		keys = {
 			{ '<leader>ff', function () require('telescope.builtin').find_files() end, desc='telescope fuzzy find files' },
 			{ '<c-p>', function () require('lars.telescope-submodule').wrap_git_picker('git_files', {
@@ -65,6 +90,11 @@ return {
 				if tsm._state.picker_name == 'git_status' then
 					vim.list_extend(keymaps, {
 						{ mode = 'i', lhs = '<C-t>', desc = '[picker] Git: toggle stage/unstage' },
+					})
+				end
+				if tsm._state.picker_name == 'git_commits' then
+					vim.list_extend(keymaps, {
+						{ mode = 'i', lhs = '<C-r>', desc = '[picker] Git: interactive rebase from commit' },
 					})
 				end
 			end

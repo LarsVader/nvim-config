@@ -11,28 +11,81 @@
 
 local M = {}
 
---- Cache: git_root -> { submodule_paths }
-local _cache = {}
+--- TTL cache implementation.
+--- Each cache is a table keyed by cache key, with entries { value, timestamp }.
+---@class TtlCache
+---@field entries table<string, { value: any, ts: number }>
+---@field ttl number seconds before entries expire
+local TtlCache = {}
+TtlCache.__index = TtlCache
+
+--- Create a new TTL cache.
+---@param ttl number seconds
+---@return TtlCache
+function TtlCache.new(ttl)
+    return setmetatable({ entries = {}, ttl = ttl }, TtlCache)
+end
+
+--- Get a cached value, or nil if expired/missing.
+---@param key string
+---@return any|nil
+function TtlCache:get(key)
+    local entry = self.entries[key]
+    if not entry then return nil end
+    if (vim.uv.now() - entry.ts) / 1000 > self.ttl then
+        self.entries[key] = nil
+        return nil
+    end
+    return entry.value
+end
+
+--- Store a value in the cache.
+---@param key string
+---@param value any
+function TtlCache:set(key, value)
+    self.entries[key] = { value = value, ts = vim.uv.now() }
+end
+
+--- Clear all entries.
+function TtlCache:clear()
+    self.entries = {}
+end
+
+-- Expose TtlCache for testing
+M._TtlCache = TtlCache
+
+--- Caches with appropriate TTLs
+local _toplevel_cache = TtlCache.new(86400)
+local _submodule_cache = TtlCache.new(86400)
+local _dirty_cache = TtlCache.new(10)
 
 --- Get the git toplevel for a given path.
 --- Returns the path in native OS format (backslashes on Windows) so that
 --- telescope can correctly compute relative paths for display.
+--- Results are cached with a 24-hour TTL.
 ---@param path string
 ---@return string|nil absolute path in native format
 function M.git_toplevel(path)
+    local cached = _toplevel_cache:get(path)
+    if cached ~= nil then return cached end
+
     local result = vim.fn.systemlist({ "git", "-C", path, "rev-parse", "--show-toplevel" })
     if vim.v.shell_error == 0 and result[1] then
-        return vim.fn.fnamemodify(result[1], ":p"):gsub("[/\\]$", "")
+        local toplevel = vim.fn.fnamemodify(result[1], ":p"):gsub("[/\\]$", "")
+        _toplevel_cache:set(path, toplevel)
+        return toplevel
     end
     return nil
 end
 
 --- Get ordered list of submodule relative paths for a git root.
 --- The root repo itself is always entry "." at index 1.
+--- Results are cached with a 24-hour TTL.
 ---@param git_root string
 ---@return string[]
 function M.get_submodules(git_root)
-    if _cache[git_root] then return _cache[git_root] end
+    local cached = _submodule_cache:get(git_root)
+    if cached then return cached end
 
     local result = vim.fn.systemlist({
         "git", "-C", git_root,
@@ -50,13 +103,15 @@ function M.get_submodules(git_root)
         end
     end
 
-    _cache[git_root] = submodules
+    _submodule_cache:set(git_root, submodules)
     return submodules
 end
 
---- Clear the submodule cache (e.g. after adding/removing submodules).
+--- Clear all caches (toplevel, submodules, dirty status).
 function M.clear_cache()
-    _cache = {}
+    _toplevel_cache:clear()
+    _submodule_cache:clear()
+    _dirty_cache:clear()
 end
 
 --- Determine which submodule the current buffer belongs to.
@@ -106,13 +161,20 @@ local function sm_label(sm)
 end
 
 --- Check whether a submodule has uncommitted changes.
+--- Results are cached with a 10-second TTL.
 ---@param git_root string
 ---@param sm string submodule relative path ("." for root)
 ---@return boolean
 function M.is_dirty(git_root, sm)
+    local cache_key = git_root .. "\0" .. sm
+    local cached = _dirty_cache:get(cache_key)
+    if cached ~= nil then return cached end
+
     local cwd = M.submodule_cwd(git_root, sm)
     local result = vim.fn.systemlist({ "git", "-C", cwd, "status", "--porcelain" })
-    return vim.v.shell_error == 0 and #result > 0
+    local dirty = vim.v.shell_error == 0 and #result > 0
+    _dirty_cache:set(cache_key, dirty)
+    return dirty
 end
 
 --- Readable label with dirty indicator.
@@ -398,6 +460,22 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                 end, "Show full commit message")
             end
 
+            -- Interactive rebase for git_commits only
+            if picker_name == "git_commits" then
+                local function rebase_selected()
+                    local action_state = require("telescope.actions.state")
+                    local entry = action_state.get_selected_entry()
+                    if not entry or not entry.value then return end
+                    local sha = tostring(entry.value)
+                    actions.close(prompt_bufnr)
+                    vim.schedule(function()
+                        vim.cmd("G rebase -i " .. sha)
+                    end)
+                end
+                buf_set("i", "<C-r>", rebase_selected, "Interactive rebase from commit")
+                buf_set("n", "<C-r>", rebase_selected, "Interactive rebase from commit")
+            end
+
             buf_set("i", "<C-s>", function()
                 actions.close(prompt_bufnr)
                 local s = M._state
@@ -423,19 +501,14 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                 end)
             end, "Submodule: pick from list")
 
-            -- For git_status: remap staging from <Tab> to <C-t>
+            -- For git_status: remap staging to <C-t>
             -- Use vim.schedule to override AFTER telescope sets up its own mappings
             if picker_name == "git_status" then
                 vim.schedule(function()
                     if not vim.api.nvim_buf_is_valid(prompt_bufnr) then return end
                     local action_state = require("telescope.actions.state")
 
-                    -- Remove <Tab> staging — restore default next-selection behavior
-                    vim.keymap.set({ "i", "n" }, "<Tab>", function()
-                        actions.move_selection_next(prompt_bufnr)
-                    end, { buffer = prompt_bufnr, desc = "Next entry" })
-
-                    -- Stage/unstage with <C-t> instead
+                    -- Stage/unstage with <C-t>
                     vim.keymap.set({ "i", "n" }, "<C-t>", function()
                         actions.git_staging_toggle(prompt_bufnr)
                         local picker = action_state.get_current_picker(prompt_bufnr)
@@ -543,14 +616,36 @@ function M._pick_submodule()
         previewer = previewers.new_buffer_previewer({
             title = preview_title .. " preview",
             define_preview = function(self, entry)
+                -- Cancel any in-flight preview job
+                if self._preview_job then
+                    self._preview_job:kill()
+                    self._preview_job = nil
+                end
+
                 local sm = entry.value.submodule
                 local cwd = M.submodule_cwd(s.git_root, sm)
                 local cmd = preview_command(s.picker_name, cwd, s.base_opts)
-                local lines = vim.fn.systemlist(cmd)
-                if vim.v.shell_error ~= 0 then
-                    lines = { "(no output)" }
+                local bufnr = self.state.bufnr
+
+                -- Show loading indicator immediately
+                if vim.api.nvim_buf_is_valid(bufnr) then
+                    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading..." })
                 end
-                vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+
+                self._preview_job = vim.system(cmd, { text = true }, function(result)
+                    vim.schedule(function()
+                        if not vim.api.nvim_buf_is_valid(bufnr) then
+                            return
+                        end
+                        local lines
+                        if result.code ~= 0 or not result.stdout or result.stdout == "" then
+                            lines = { "(no output)" }
+                        else
+                            lines = vim.split(result.stdout, "\n", { trimempty = true })
+                        end
+                        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+                    end)
+                end)
             end,
         }),
         attach_mappings = function(prompt_bufnr)
@@ -614,6 +709,21 @@ function M._apply_picker_mappings(picker_name, opts)
                     buffer = prompt_bufnr, once = true,
                     callback = function() close_commit_msg_float() end,
                 })
+                if picker_name == "git_commits" then
+                    local actions = require("telescope.actions")
+                    local function rebase_selected()
+                        local action_state = require("telescope.actions.state")
+                        local entry = action_state.get_selected_entry()
+                        if not entry or not entry.value then return end
+                        local sha = tostring(entry.value)
+                        actions.close(prompt_bufnr)
+                        vim.schedule(function()
+                            vim.cmd("G rebase -i " .. sha)
+                        end)
+                    end
+                    vim.keymap.set("i", "<C-r>", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
+                    vim.keymap.set("n", "<C-r>", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
+                end
                 return true
             end,
         })
@@ -625,9 +735,6 @@ function M._apply_picker_mappings(picker_name, opts)
                 local actions = require("telescope.actions")
                 vim.schedule(function()
                     if not vim.api.nvim_buf_is_valid(prompt_bufnr) then return end
-                    vim.keymap.set({ "i", "n" }, "<Tab>", function()
-                        actions.move_selection_next(prompt_bufnr)
-                    end, { buffer = prompt_bufnr, desc = "Next entry" })
                     vim.keymap.set({ "i", "n" }, "<C-t>", function()
                         actions.git_staging_toggle(prompt_bufnr)
                     end, { buffer = prompt_bufnr, desc = "Git: toggle stage/unstage" })
