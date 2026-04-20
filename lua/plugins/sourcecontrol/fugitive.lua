@@ -37,17 +37,23 @@ return {
 							vim.api.nvim_win_close(cw, false)
 						end
 
-						-- Get a fresh status buffer via :G, then close its split
-						vim.cmd('G')
-						local status_buf = vim.api.nvim_get_current_buf()
-						vim.bo[status_buf].bufhidden = 'hide'
-						vim.api.nvim_win_close(0, false)
+						-- Build a diff buffer showing staged changes
+						local diff_lines = vim.fn.systemlist({ 'git', 'diff', '--cached' })
+						if #diff_lines == 0 then
+							-- Fallback: show all changes if nothing staged
+							diff_lines = vim.fn.systemlist({ 'git', 'diff', 'HEAD' })
+						end
+						local diff_buf = vim.api.nvim_create_buf(false, true)
+						vim.api.nvim_buf_set_lines(diff_buf, 0, -1, false, diff_lines)
+						vim.bo[diff_buf].modifiable = false
+						vim.bo[diff_buf].bufhidden = 'wipe'
+						vim.bo[diff_buf].filetype = 'diff'
 
 						-- Two side-by-side floats
 						local total_w = math.floor(vim.o.columns * 0.9)
 						local h = math.floor(vim.o.lines * 0.9)
 						local commit_w = math.floor(total_w * 0.5)
-						local status_w = total_w - commit_w - 2
+						local diff_w = total_w - commit_w - 2
 						local row = math.floor((vim.o.lines - h) / 2)
 						local col = math.floor((vim.o.columns - total_w) / 2)
 
@@ -57,15 +63,18 @@ return {
 							width = commit_w, height = h,
 							col = col, row = row,
 							style = 'minimal', border = 'rounded',
+							title = ' Commit Message ', title_pos = 'center',
 						})
 
-						-- Right: status
-						local status_float = vim.api.nvim_open_win(status_buf, false, {
+						-- Right: diff
+						local status_float = vim.api.nvim_open_win(diff_buf, false, {
 							relative = 'editor',
-							width = status_w, height = h,
+							width = diff_w, height = h,
 							col = col + commit_w + 2, row = row,
 							style = 'minimal', border = 'rounded',
+							title = ' Staged Changes ', title_pos = 'center',
 						})
+						local status_buf = diff_buf
 
 						-- Restore fugitive's original bufhidden so :wq triggers commit
 						vim.bo[commit_buf].bufhidden = orig_bufhidden

@@ -333,6 +333,18 @@ describe("plugin smoke tests", function()
         end)
     end)
 
+    describe("git-submodules", function()
+        it("submodule_commit_picker keymap is registered", function()
+            local map = h.find_keymap("n", "<leader>gS")
+            assert.is_not_nil(map, "<leader>gS keymap should be registered")
+        end)
+
+        it("submodule_checkout_picker keymap is registered", function()
+            local map = h.find_keymap("n", "<leader>gC")
+            assert.is_not_nil(map, "<leader>gC keymap should be registered")
+        end)
+    end)
+
     describe("themery", function()
         it("loads without error", function()
             local ok, err = h.force_load_plugin("themery.nvim")

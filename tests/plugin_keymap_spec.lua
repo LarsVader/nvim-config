@@ -185,6 +185,18 @@ describe("plugin keymaps", function()
         end)
     end)
 
+    describe("git-submodules", function()
+        local keys = {
+            { "<leader>gS", "submodule commit" },
+            { "<leader>gC", "submodule checkout" },
+        }
+        for _, k in ipairs(keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
+            end)
+        end
+    end)
+
     describe("diffview", function()
         local keys = {
             { "<leader>dv", "open" },

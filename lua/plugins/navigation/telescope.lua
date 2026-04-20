@@ -26,10 +26,12 @@ return {
 					i = {
 						["<Tab>"] = actions.move_selection_previous,
 						["<S-Tab>"] = actions.move_selection_next,
+						["<C-t>"] = actions.toggle_selection + actions.move_selection_worse,
 					},
 					n = {
 						["<Tab>"] = actions.move_selection_previous,
 						["<S-Tab>"] = actions.move_selection_next,
+						["<C-t>"] = actions.toggle_selection + actions.move_selection_worse,
 					},
 				},
 			},
@@ -94,7 +96,7 @@ return {
 				end
 				if tsm._state.picker_name == 'git_commits' then
 					vim.list_extend(keymaps, {
-						{ mode = 'i', lhs = '<C-r>', desc = '[picker] Git: interactive rebase from commit' },
+						{ mode = 'i', lhs = '<C-r>i', desc = '[picker] Git: interactive rebase from commit' },
 					})
 				end
 			end

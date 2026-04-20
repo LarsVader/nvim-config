@@ -156,6 +156,16 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 | `<Space>dc` | Close diff view |
 | `<Space>dm` | Diff against main branch |
 
+### Submodule Operations -- Multi-Select Pickers
+
+> `lua/plugins/sourcecontrol/git-submodules.lua`
+> Custom Telescope pickers for batch operations across git submodules. Multi-select with `<C-t>`.
+
+| Key | Action |
+|-----|--------|
+| `<Space>gS` | Commit in selected dirty submodules, then update parent refs |
+| `<Space>gC` | Checkout (or create) a branch in selected submodules |
+
 ---
 
 ## Text Editing

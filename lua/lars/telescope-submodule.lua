@@ -476,11 +476,37 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                     local sha = tostring(entry.value)
                     actions.close(prompt_bufnr)
                     vim.schedule(function()
+                        local prev_cwd = vim.fn.getcwd()
+                        vim.cmd("lcd " .. vim.fn.fnameescape(cwd))
                         vim.cmd("G rebase -i " .. sha)
+                        -- Poll for rebase completion: check if .git/rebase-merge
+                        -- or .git/rebase-apply still exists in the submodule
+                        local timer = vim.uv.new_timer()
+                        timer:start(1000, 2000, vim.schedule_wrap(function()
+                            local git_dir = vim.fn.systemlist({ "git", "-C", cwd, "rev-parse", "--git-dir" })
+                            local gd = git_dir[1] or ""
+                            if gd == "" then
+                                timer:stop()
+                                timer:close()
+                                vim.cmd("lcd " .. vim.fn.fnameescape(prev_cwd))
+                                return
+                            end
+                            -- Resolve relative git-dir against cwd
+                            if not vim.fn.isabsolutepath(gd) then
+                                gd = cwd .. "/" .. gd
+                            end
+                            local in_rebase = vim.fn.isdirectory(gd .. "/rebase-merge") == 1
+                                or vim.fn.isdirectory(gd .. "/rebase-apply") == 1
+                            if not in_rebase then
+                                timer:stop()
+                                timer:close()
+                                vim.cmd("lcd " .. vim.fn.fnameescape(prev_cwd))
+                            end
+                        end))
                     end)
                 end
-                buf_set("i", "<C-r>", rebase_selected, "Interactive rebase from commit")
-                buf_set("n", "<C-r>", rebase_selected, "Interactive rebase from commit")
+                buf_set("i", "<C-r>i", rebase_selected, "Interactive rebase from commit")
+                buf_set("n", "<C-r>i", rebase_selected, "Interactive rebase from commit")
             end
 
             buf_set("i", "<C-s>", function()
@@ -751,8 +777,8 @@ function M._apply_picker_mappings(picker_name, opts)
                             vim.cmd("G rebase -i " .. sha)
                         end)
                     end
-                    vim.keymap.set("i", "<C-r>", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
-                    vim.keymap.set("n", "<C-r>", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
+                    vim.keymap.set("i", "<C-r>i", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
+                    vim.keymap.set("n", "<C-r>i", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
                 end
                 return true
             end,
