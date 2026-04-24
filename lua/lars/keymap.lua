@@ -60,6 +60,14 @@ vim.keymap.set('n', '@a', '@a', { desc = "Macro: play register a" })
 vim.keymap.set('n', '@@', '@@', { desc = "Macro: replay last macro" })
 vim.keymap.set('n', 'Q', 'Q', { desc = "Macro: replay last recorded macro" })
 
+-- Scrolling (descriptions make them discoverable via <leader>fk)
+vim.keymap.set('n', '<C-e>', '<C-e>', { desc = "Scroll down one line" })
+vim.keymap.set('n', '<C-y>', '<C-y>', { desc = "Scroll up one line" })
+vim.keymap.set('n', '<C-d>', '<C-d>', { desc = "Scroll down half page" })
+vim.keymap.set('n', '<C-u>', '<C-u>', { desc = "Scroll up half page" })
+vim.keymap.set('n', '<C-f>', '<C-f>', { desc = "Scroll down full page" })
+vim.keymap.set('n', '<C-b>', '<C-b>', { desc = "Scroll up full page" })
+
 -- Misc native commands
 vim.keymap.set('n', '<C-a>', '<C-a>', { desc = "Increment number under cursor" })
 vim.keymap.set('n', '<C-x>', '<C-x>', { desc = "Decrement number under cursor" })
