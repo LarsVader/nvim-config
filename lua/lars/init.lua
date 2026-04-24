@@ -1,4 +1,5 @@
 require("lars.autocommands")
+require("lars.compiler")
 require("lars.keymap")
 require("lars.options")
 require("lars.plugin-load")

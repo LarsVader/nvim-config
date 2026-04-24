@@ -202,6 +202,11 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 > `lua/plugins/vimdispatch.lua`
 > Async build system via vim-dispatch. Runs Make/shell commands without blocking.
 
+### Compiler Auto-Detection
+
+> `lua/lars/compiler.lua`
+> On `:Make`/`:make` (via `QuickFixCmdPre`), reads the Makefile in `cwd` and detects all build tools used (cargo, dotnet, msbuild, gcc/g++, cmake). Combines their `errorformat` patterns so the quickfix list correctly parses output from any tool. Follows `$(MAKE) -C` delegations to subfolder Makefiles. Supports `GNUmakefile`, `Makefile`, and `makefile`. Includes extra patterns for `dotnet test` failure output.
+
 ---
 
 ## AI / Claude Code
