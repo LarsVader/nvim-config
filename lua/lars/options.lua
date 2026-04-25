@@ -5,6 +5,7 @@ vim.opt.softtabstop = 4
 vim.opt.shiftwidth = 4
 vim.opt.smartindent = true
 vim.opt.spell = true
+vim.opt.spelllang = { "en", "de" }
 vim.opt.undofile = true -- allows undo after quit and reopen
 vim.opt.hlsearch = false
 vim.opt.incsearch = true
