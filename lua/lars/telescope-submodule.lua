@@ -342,6 +342,51 @@ local default_titles = {
     grep_string  = "Grep String",
 }
 
+--- Smart git branch checkout: for remote branches (e.g. origin/foo), strip
+--- the remote prefix so `git checkout foo` auto-creates a local tracking branch.
+---@param prompt_bufnr number
+---@param cwd string|nil optional cwd for git command
+local function smart_git_checkout(prompt_bufnr, cwd)
+    local actions = require("telescope.actions")
+    local action_state = require("telescope.actions.state")
+    local utils = require("telescope.utils")
+
+    local selection = action_state.get_selected_entry()
+    if not selection then return end
+
+    local branch = selection.value
+    -- If it's a remote branch like "origin/foo", strip the remote prefix
+    local local_name = branch:match("^[^/]+/(.+)$")
+    -- Only strip if it looks like a remote ref (not a local branch with slashes)
+    -- Check if the original name starts with a known remote
+    local is_remote = false
+    local git_cwd = cwd or action_state.get_current_picker(prompt_bufnr).cwd
+    local remotes = utils.get_os_command_output({ "git", "remote" }, git_cwd)
+    for _, remote in ipairs(remotes or {}) do
+        if branch:find("^" .. vim.pesc(remote) .. "/") then
+            is_remote = true
+            break
+        end
+    end
+
+    local checkout_name = (is_remote and local_name) and local_name or branch
+    actions.close(prompt_bufnr)
+    local _, ret, stderr = utils.get_os_command_output({ "git", "checkout", checkout_name }, git_cwd)
+    if ret == 0 then
+        utils.notify("actions.git_checkout", {
+            msg = string.format("Checked out: %s", checkout_name),
+            level = "INFO",
+        })
+        vim.cmd("checktime")
+    else
+        utils.notify("actions.git_checkout", {
+            msg = string.format("Error when checking out: %s. Git returned: '%s'",
+                checkout_name, table.concat(stderr, " ")),
+            level = "ERROR",
+        })
+    end
+end
+
 --- Create a custom entry_maker for git_status that shows relative paths.
 --- Wraps telescope's default maker and overrides the display function to
 --- normalize path separators on Windows.
@@ -507,6 +552,13 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                 end
                 buf_set("i", "<C-r>i", rebase_selected, "Interactive rebase from commit")
                 buf_set("n", "<C-r>i", rebase_selected, "Interactive rebase from commit")
+            end
+
+            -- Smart checkout for git_branches: strip remote prefix
+            if picker_name == "git_branches" then
+                actions.select_default:replace(function()
+                    smart_git_checkout(prompt_bufnr, cwd)
+                end)
             end
 
             buf_set("i", "<C-s>", function()
@@ -780,6 +832,18 @@ function M._apply_picker_mappings(picker_name, opts)
                     vim.keymap.set("i", "<C-r>i", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
                     vim.keymap.set("n", "<C-r>i", rebase_selected, { buffer = prompt_bufnr, desc = "Interactive rebase from commit" })
                 end
+                return true
+            end,
+        })
+    end
+
+    if picker_name == "git_branches" then
+        return vim.tbl_deep_extend("force", opts, {
+            attach_mappings = function(prompt_bufnr)
+                local actions = require("telescope.actions")
+                actions.select_default:replace(function()
+                    smart_git_checkout(prompt_bufnr)
+                end)
                 return true
             end,
         })
