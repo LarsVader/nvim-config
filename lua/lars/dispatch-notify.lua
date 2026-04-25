@@ -35,6 +35,20 @@ function M.is_visible()
 	return s.win ~= nil and vim.api.nvim_win_is_valid(s.win)
 end
 
+function M.update_label(label)
+	local s = M._state
+	if s.buf and vim.api.nvim_buf_is_valid(s.buf) then
+		s.label = " ⚙ " .. label .. " "
+		local dots = string.rep(".", s.dots)
+		vim.api.nvim_buf_set_lines(s.buf, 0, -1, false, { s.label .. dots })
+
+		local width = #s.label + 3
+		if s.win and vim.api.nvim_win_is_valid(s.win) then
+			vim.api.nvim_win_set_config(s.win, { width = width })
+		end
+	end
+end
+
 function M.show(cmd, opts)
 	M.close()
 

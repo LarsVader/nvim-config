@@ -46,8 +46,11 @@ return {
 			end
 
 			-- Progress popup: show while Roslyn is indexing the solution.
-			-- Only on the initial attach (before RoslynInitialized fires).
-			local notify = require("lars.dispatch-notify")
+			-- Uses the generic lsp-progress module with a custom source,
+			-- since Roslyn signals completion via User RoslynInitialized
+			-- rather than standard $/progress end tokens.
+			local lsp_progress = require("lars.lsp-progress")
+			lsp_progress.set_custom("roslyn")
 			local group = vim.api.nvim_create_augroup("RoslynProgress", {})
 			local initialized = false
 
@@ -56,12 +59,7 @@ return {
 				callback = function(ev)
 					local client = vim.lsp.get_client_by_id(ev.data.client_id)
 					if client and client.name == "roslyn" and not initialized then
-						notify.show("Roslyn indexing", {
-							is_running = function()
-								return not initialized
-							end,
-							poll_interval = 400,
-						})
+						lsp_progress.add("Roslyn", "Indexing solution")
 					end
 				end,
 			})
@@ -69,9 +67,9 @@ return {
 			vim.api.nvim_create_autocmd("User", {
 				group = group,
 				pattern = "RoslynInitialized",
-				callback = function(ev)
+				callback = function()
 					initialized = true
-					notify.close()
+					lsp_progress.remove("Roslyn")
 
 					-- Refresh diagnostics on all open cs buffers — the first
 					-- buffer opened before the solution loaded will have stale
