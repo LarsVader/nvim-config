@@ -2,31 +2,6 @@
 --   <leader>gS  Commit in selected dirty submodules
 --   <leader>gC  Checkout branch in selected submodules
 
-local function get_dirty_submodules()
-    local result = vim.fn.systemlist({
-        "git", "submodule", "foreach", "--quiet",
-        "bash -c 'if [ -n \"$(git status --porcelain)\" ]; then echo \"$name\"; fi'",
-    })
-    if vim.v.shell_error ~= 0 then
-        return {}
-    end
-    local dirty = {}
-    for _, name in ipairs(result) do
-        if name ~= "" then
-            -- Get short status summary
-            local status_lines = vim.fn.systemlist({
-                "git", "-C", name, "status", "--short",
-            })
-            local summary = ""
-            if #status_lines > 0 then
-                summary = string.format(" (%d changed)", #status_lines)
-            end
-            table.insert(dirty, { name = name, summary = summary })
-        end
-    end
-    return dirty
-end
-
 local function get_all_submodules()
     local result = vim.fn.systemlist({
         "git", "submodule", "status",
@@ -254,34 +229,183 @@ local function open_commit_float(names)
     })
 end
 
+--- Get all submodules with dirty status info (async), sorted dirty-first.
+--- Calls callback(entries) when done.
+---@param callback fun(entries: table[])
+local function get_all_submodules_with_status(callback)
+    vim.system(
+        { "git", "submodule", "status" },
+        { text = true },
+        function(sm_result)
+            vim.schedule(function()
+                if sm_result.code ~= 0 or not sm_result.stdout or sm_result.stdout == "" then
+                    callback({})
+                    return
+                end
+
+                local paths = {}
+                for _, line in ipairs(vim.split(sm_result.stdout, "\n", { trimempty = true })) do
+                    local path = line:match("^[%s%+%-U]*%x+%s+(%S+)")
+                    if path and path ~= "" then
+                        table.insert(paths, path)
+                    end
+                end
+
+                if #paths == 0 then
+                    callback({})
+                    return
+                end
+
+                local entries = {}
+                -- 2 async calls per submodule: status + branch
+                local pending = #paths * 2
+                local status_map = {}  -- path -> status_lines
+                local branch_map = {}  -- path -> branch name
+                local function maybe_finish()
+                    pending = pending - 1
+                    if pending > 0 then return end
+                    for _, path in ipairs(paths) do
+                        local status_lines = status_map[path] or {}
+                        local is_dirty = #status_lines > 0
+                        local summary = is_dirty and string.format(" (%d changed)", #status_lines) or ""
+                        local branch = branch_map[path] or "detached"
+                        table.insert(entries, {
+                            name = path, summary = summary,
+                            dirty = is_dirty, branch = branch,
+                        })
+                    end
+                    table.sort(entries, function(a, b)
+                        if a.dirty ~= b.dirty then return a.dirty end
+                        return a.name < b.name
+                    end)
+                    callback(entries)
+                end
+
+                for _, path in ipairs(paths) do
+                    vim.system(
+                        { "git", "-C", path, "status", "--porcelain" },
+                        { text = true },
+                        function(res)
+                            vim.schedule(function()
+                                if res.code == 0 and res.stdout and res.stdout ~= "" then
+                                    status_map[path] = vim.split(res.stdout, "\n", { trimempty = true })
+                                else
+                                    status_map[path] = {}
+                                end
+                                maybe_finish()
+                            end)
+                        end
+                    )
+                    vim.system(
+                        { "git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD" },
+                        { text = true },
+                        function(res)
+                            vim.schedule(function()
+                                if res.code == 0 and res.stdout then
+                                    branch_map[path] = vim.trim(res.stdout)
+                                end
+                                maybe_finish()
+                            end)
+                        end
+                    )
+                end
+            end)
+        end
+    )
+end
+
 local function submodule_commit_picker()
     local pickers = require("telescope.pickers")
     local finders = require("telescope.finders")
+    local previewers = require("telescope.previewers")
     local conf = require("telescope.config").values
     local actions = require("telescope.actions")
     local action_state = require("telescope.actions.state")
 
-    local dirty = get_dirty_submodules()
-    if #dirty == 0 then
-        vim.notify("No submodules with uncommitted changes", vim.log.levels.INFO)
+    get_all_submodules_with_status(function(subs)
+    if #subs == 0 then
+        vim.notify("No submodules found", vim.log.levels.INFO)
         return
     end
 
     pickers.new({}, {
         prompt_title = "Submodule Commit: select dirty submodules (<C-t> to multi-select)",
         finder = finders.new_table({
-            results = dirty,
+            results = subs,
             entry_maker = function(entry)
-                local display = entry.name .. entry.summary
+                local prefix = entry.dirty and "" or "  "
+                local main = prefix .. entry.name .. entry.summary
+                local branch_part = "  " .. entry.branch
+                local full = main .. branch_part
                 return {
                     value = entry,
-                    display = display,
+                    display = function()
+                        return full, { { { #main, #full }, "TelescopeResultsComment" } }
+                    end,
                     ordinal = entry.name,
                 }
             end,
         }),
         sorter = conf.generic_sorter({}),
+        previewer = previewers.new_buffer_previewer({
+            title = "Submodule Diff",
+            define_preview = function(self, entry)
+                if self._preview_job then
+                    self._preview_job:kill()
+                    self._preview_job = nil
+                end
+
+                local bufnr = self.state.bufnr
+                local name = entry.value.name
+
+                if not entry.value.dirty then
+                    if vim.api.nvim_buf_is_valid(bufnr) then
+                        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "(no changes)" })
+                    end
+                    return
+                end
+
+                if vim.api.nvim_buf_is_valid(bufnr) then
+                    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading..." })
+                end
+
+                self._preview_job = vim.system(
+                    { "git", "-C", name, "diff", "HEAD" },
+                    { text = true },
+                    function(result)
+                        vim.schedule(function()
+                            if not vim.api.nvim_buf_is_valid(bufnr) then return end
+                            local lines
+                            if result.code ~= 0 or not result.stdout or result.stdout == "" then
+                                -- Fall back to status for untracked-only changes
+                                local status = vim.fn.systemlist({ "git", "-C", name, "status", "--short" })
+                                lines = #status > 0 and status or { "(no diff output)" }
+                            else
+                                lines = vim.split(result.stdout, "\n", { trimempty = true })
+                            end
+                            vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+                            vim.bo[bufnr].filetype = "diff"
+                        end)
+                    end
+                )
+            end,
+        }),
         attach_mappings = function(prompt_bufnr)
+            -- Block multi-select toggle on clean submodules
+            -- Use vim.schedule to override AFTER telescope sets up its default mappings
+            vim.schedule(function()
+                if not vim.api.nvim_buf_is_valid(prompt_bufnr) then return end
+                vim.keymap.set({ "i", "n" }, "<C-t>", function()
+                    local entry = action_state.get_selected_entry()
+                    if entry and not entry.value.dirty then
+                        vim.notify("Cannot select clean submodule: " .. entry.value.name, vim.log.levels.WARN)
+                        return
+                    end
+                    actions.toggle_selection(prompt_bufnr)
+                    actions.move_selection_worse(prompt_bufnr)
+                end, { buffer = prompt_bufnr })
+            end)
+
             actions.select_default:replace(function()
                 local picker = action_state.get_current_picker(prompt_bufnr)
                 local selections = picker:get_multi_selection()
@@ -289,6 +413,10 @@ local function submodule_commit_picker()
                 if #selections == 0 then
                     local entry = action_state.get_selected_entry()
                     if entry then
+                        if not entry.value.dirty then
+                            vim.notify("Cannot select clean submodule: " .. entry.value.name, vim.log.levels.WARN)
+                            return
+                        end
                         selections = { entry }
                     end
                 end
@@ -309,6 +437,7 @@ local function submodule_commit_picker()
             return true
         end,
     }):find()
+    end) -- get_all_submodules_with_status callback
 end
 
 local function submodule_checkout_picker()
