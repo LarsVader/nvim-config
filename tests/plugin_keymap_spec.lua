@@ -197,6 +197,43 @@ describe("plugin keymaps", function()
         end
     end)
 
+    describe("treesitter-textobjects", function()
+        local normal_keys = {
+            { "]m", "next function" },
+            { "[m", "previous function" },
+            { "]c", "next class" },
+            { "[c", "previous class" },
+            { "]b", "next block" },
+            { "[b", "previous block" },
+            { "]a", "next parameter" },
+            { "[a", "previous parameter" },
+        }
+        for _, k in ipairs(normal_keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
+            end)
+        end
+
+        local select_keys = {
+            { "af", "around function" },
+            { "if", "inside function" },
+            { "ac", "around class" },
+            { "ic", "inside class" },
+            { "aa", "around parameter" },
+            { "ia", "inside parameter" },
+            { "ab", "around block" },
+            { "ib", "inside block" },
+        }
+        for _, k in ipairs(select_keys) do
+            it(k[1] .. " (" .. k[2] .. ") visual", function()
+                assert.is_true(h.has_keymap("x", k[1]), k[1] .. " not found in visual mode")
+            end)
+            it(k[1] .. " (" .. k[2] .. ") operator", function()
+                assert.is_true(h.has_keymap("o", k[1]), k[1] .. " not found in operator mode")
+            end)
+        end
+    end)
+
     describe("diffview", function()
         local keys = {
             { "<leader>dv", "open" },

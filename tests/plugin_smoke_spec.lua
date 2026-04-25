@@ -383,6 +383,20 @@ describe("plugin smoke tests", function()
         end)
     end)
 
+    describe("treesitter-textobjects", function()
+        it("loads without error", function()
+            local ok, err = h.force_load_plugin("nvim-treesitter-textobjects")
+            assert.is_true(ok, "nvim-treesitter-textobjects failed to load: " .. tostring(err))
+        end)
+
+        it("move module is requireable", function()
+            local ok, err = pcall(function()
+                require("nvim-treesitter-textobjects.move")
+            end)
+            assert.is_true(ok, "move module failed to require: " .. tostring(err))
+        end)
+    end)
+
     describe("xaml-lsp", function()
         -- When Mason/xaml-lsp is not installed, the plugin returns {} early
         -- and skips vim.lsp.config registration. Detect this so tests that

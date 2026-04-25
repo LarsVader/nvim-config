@@ -60,6 +60,14 @@ vim.keymap.set('n', '@a', '@a', { desc = "Macro: play register a" })
 vim.keymap.set('n', '@@', '@@', { desc = "Macro: replay last macro" })
 vim.keymap.set('n', 'Q', 'Q', { desc = "Macro: replay last recorded macro" })
 
+-- Spelling (descriptions make them discoverable via <leader>fk)
+vim.keymap.set('n', ']s', ']s', { desc = "Spelling: next misspelled word" })
+vim.keymap.set('n', '[s', '[s', { desc = "Spelling: previous misspelled word" })
+
+-- Move selection vertically
+vim.keymap.set('v', '<C-j>', ":m '>+1<CR>gv=gv", { desc = "Move selection down" })
+vim.keymap.set('v', '<C-k>', ":m '<-2<CR>gv=gv", { desc = "Move selection up" })
+
 -- Scrolling (descriptions make them discoverable via <leader>fk)
 vim.keymap.set('n', '<C-e>', '<C-e>', { desc = "Scroll down one line" })
 vim.keymap.set('n', '<C-y>', '<C-y>', { desc = "Scroll up one line" })

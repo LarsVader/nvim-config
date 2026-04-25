@@ -142,6 +142,36 @@ describe("global keymaps", function()
         end)
     end)
 
+    -- Spelling keymaps
+    describe("spelling", function()
+        it("]s (next misspelled)", function()
+            local km = h.find_keymap("n", "]s")
+            assert.is_not_nil(km, "]s not found")
+            assert.is_not_nil(km.desc:lower():find("spell"), "desc missing 'spell'")
+        end)
+
+        it("[s (previous misspelled)", function()
+            local km = h.find_keymap("n", "[s")
+            assert.is_not_nil(km, "[s not found")
+            assert.is_not_nil(km.desc:lower():find("spell"), "desc missing 'spell'")
+        end)
+    end)
+
+    -- Visual mode keymaps
+    describe("visual mode", function()
+        it("<C-j> (move selection down)", function()
+            local km = h.find_keymap("v", "<C-j>")
+            assert.is_not_nil(km, "<C-j> not found in visual mode")
+            assert.is_not_nil(km.desc:lower():find("move"), "desc missing 'move'")
+        end)
+
+        it("<C-k> (move selection up)", function()
+            local km = h.find_keymap("v", "<C-k>")
+            assert.is_not_nil(km, "<C-k> not found in visual mode")
+            assert.is_not_nil(km.desc:lower():find("move"), "desc missing 'move'")
+        end)
+    end)
+
     -- Terminal mode keymaps
     describe("terminal mode", function()
         it("exit terminal <Esc><Esc>", function()

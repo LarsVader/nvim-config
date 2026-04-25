@@ -84,4 +84,91 @@ return {
 		'nvim-treesitter/nvim-treesitter-context',
 		dependencies = { 'nvim-treesitter/nvim-treesitter' },
 	},
+	{
+		'nvim-treesitter/nvim-treesitter-textobjects',
+		dependencies = { 'nvim-treesitter/nvim-treesitter' },
+		keys = {
+			-- Move: function
+			{
+				']m',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_next_start('@function.outer')
+					vim.schedule(function() vim.cmd('normal! zt') end)
+				end,
+				desc = "Jump to next function",
+			},
+			{
+				'[m',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_previous_start('@function.outer')
+					vim.schedule(function() vim.cmd('normal! zt') end)
+				end,
+				desc = "Jump to previous function",
+			},
+			-- Move: class
+			{
+				']c',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_next_start('@class.outer')
+					vim.schedule(function() vim.cmd('normal! zt') end)
+				end,
+				desc = "Jump to next class",
+			},
+			{
+				'[c',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_previous_start('@class.outer')
+					vim.schedule(function() vim.cmd('normal! zt') end)
+				end,
+				desc = "Jump to previous class",
+			},
+			-- Move: parameter
+			{
+				']a',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_next_start('@parameter.outer')
+				end,
+				desc = "Jump to next parameter",
+			},
+			{
+				'[a',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_previous_start('@parameter.outer')
+				end,
+				desc = "Jump to previous parameter",
+			},
+			-- Move: block
+			{
+				']b',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_next_start('@block.outer')
+				end,
+				desc = "Jump to next block",
+			},
+			{
+				'[b',
+				function()
+					require('nvim-treesitter-textobjects.move').goto_previous_start('@block.outer')
+				end,
+				desc = "Jump to previous block",
+			},
+			-- Select: function
+			{ 'af', function() require('nvim-treesitter-textobjects.select').select_textobject('@function.outer') end, mode = { 'x', 'o' }, desc = "Select around function" },
+			{ 'if', function() require('nvim-treesitter-textobjects.select').select_textobject('@function.inner') end, mode = { 'x', 'o' }, desc = "Select inside function" },
+			-- Select: class
+			{ 'ac', function() require('nvim-treesitter-textobjects.select').select_textobject('@class.outer') end, mode = { 'x', 'o' }, desc = "Select around class" },
+			{ 'ic', function() require('nvim-treesitter-textobjects.select').select_textobject('@class.inner') end, mode = { 'x', 'o' }, desc = "Select inside class" },
+			-- Select: parameter
+			{ 'aa', function() require('nvim-treesitter-textobjects.select').select_textobject('@parameter.outer') end, mode = { 'x', 'o' }, desc = "Select around parameter" },
+			{ 'ia', function() require('nvim-treesitter-textobjects.select').select_textobject('@parameter.inner') end, mode = { 'x', 'o' }, desc = "Select inside parameter" },
+			-- Select: block/scope
+			{ 'ab', function() require('nvim-treesitter-textobjects.select').select_textobject('@block.outer') end, mode = { 'x', 'o' }, desc = "Select around block" },
+			{ 'ib', function() require('nvim-treesitter-textobjects.select').select_textobject('@block.inner') end, mode = { 'x', 'o' }, desc = "Select inside block" },
+		},
+		config = function()
+			require('nvim-treesitter-textobjects').setup({
+				select = { lookahead = true },
+			})
+		end,
+	},
 }
