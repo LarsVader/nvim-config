@@ -14,6 +14,10 @@ return {
 					vim.schedule(function()
 						if not vim.api.nvim_buf_is_valid(commit_buf) then return end
 
+						-- Skip non-fugitive commit buffers (e.g. submodule commit float)
+						local bufname = vim.api.nvim_buf_get_name(commit_buf)
+						if not bufname:match("COMMIT_EDITMSG$") then return end
+
 						-- Save fugitive's bufhidden (usually 'delete') then protect
 						-- the buffer so it survives window transitions
 						local orig_bufhidden = vim.bo[commit_buf].bufhidden
@@ -38,10 +42,12 @@ return {
 						end
 
 						-- Build a diff buffer showing staged changes
-						local diff_lines = vim.fn.systemlist({ 'git', 'diff', '--cached' })
+						-- Use fugitive's worktree so we diff the correct repo
+						local worktree = vim.fn.FugitiveWorkTree()
+						local diff_lines = vim.fn.systemlist({ 'git', '-C', worktree, 'diff', '--cached' })
 						if #diff_lines == 0 then
 							-- Fallback: show all changes if nothing staged
-							diff_lines = vim.fn.systemlist({ 'git', 'diff', 'HEAD' })
+							diff_lines = vim.fn.systemlist({ 'git', '-C', worktree, 'diff', 'HEAD' })
 						end
 						local diff_buf = vim.api.nvim_create_buf(false, true)
 						vim.api.nvim_buf_set_lines(diff_buf, 0, -1, false, diff_lines)
