@@ -189,6 +189,19 @@ local function sm_label_dirty(git_root, sm)
     return label
 end
 
+--- Get the current branch name for a submodule.
+---@param git_root string
+---@param sm string submodule relative path ("." for root)
+---@return string branch name or "detached"
+function M._get_branch(git_root, sm)
+    local cwd = M.submodule_cwd(git_root, sm)
+    local result = vim.fn.systemlist({ "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD" })
+    if vim.v.shell_error == 0 and result[1] then
+        return vim.trim(result[1])
+    end
+    return "detached"
+end
+
 --- Whether a submodule-aware picker is currently active.
 M._picker_active = false
 
@@ -689,6 +702,7 @@ function M._pick_submodule()
     local entries = {}
     for i, sm in ipairs(s.submodules) do
         local dirty = M.is_dirty(s.git_root, sm)
+        local branch = M._get_branch(s.git_root, sm)
         local label = sm_label(sm)
         if dirty then
             label = label .. " [modified]"
@@ -696,7 +710,7 @@ function M._pick_submodule()
         if i == s.current_idx then
             label = label .. " (current)"
         end
-        table.insert(entries, { label = label, submodule = sm })
+        table.insert(entries, { label = label, submodule = sm, branch = branch })
     end
 
     local preview_title = default_titles[s.picker_name] or s.picker_name
@@ -707,9 +721,13 @@ function M._pick_submodule()
         finder = finders.new_table({
             results = entries,
             entry_maker = function(entry)
+                local branch_part = "  " .. entry.branch
+                local full = entry.label .. branch_part
                 return {
                     value   = entry,
-                    display = entry.label,
+                    display = function()
+                        return full, { { { #entry.label, #full }, "TelescopeResultsComment" } }
+                    end,
                     ordinal = entry.label,
                 }
             end,
