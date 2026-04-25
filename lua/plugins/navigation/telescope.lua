@@ -80,6 +80,60 @@ return {
 			local action_state = require('telescope.actions.state')
 			local pickers     = require('telescope.pickers')
 			local finders     = require('telescope.finders')
+			-- Human-readable descriptions for Neovim built-in keymaps
+			local desc_overrides = {
+				-- Insert mode
+				['i <C-S>']  = 'LSP signature help',
+				['i <C-U>']  = 'Delete to start of line',
+				['i <C-W>']  = 'Delete word before cursor',
+				-- Normal mode: LSP
+				['n gO']     = 'LSP document symbols',
+				['n gra']    = 'LSP code action',
+				['n gri']    = 'LSP go to implementation',
+				['n grn']    = 'LSP rename symbol',
+				['n grr']    = 'LSP find references',
+				['n grt']    = 'LSP go to type definition',
+				['n grx']    = 'LSP run code lens',
+				-- Normal mode: misc defaults
+				['n &']      = 'Repeat last :s substitute',
+				['n Y']      = 'Yank to end of line',
+				-- Normal mode: unimpaired-style bracket navigation
+				['n [<C-L>'] = 'Previous location file',
+				['n ]<C-L>'] = 'Next location file',
+				['n [<C-Q>'] = 'Previous quickfix file',
+				['n ]<C-Q>'] = 'Next quickfix file',
+				['n [<C-T>'] = 'Previous tag (preview)',
+				['n ]<C-T>'] = 'Next tag (preview)',
+				['n [A']     = 'First argument',
+				['n ]A']     = 'Last argument',
+				['n [B']     = 'First buffer',
+				['n ]B']     = 'Last buffer',
+				['n [L']     = 'First location list item',
+				['n ]L']     = 'Last location list item',
+				['n [Q']     = 'First quickfix item',
+				['n ]Q']     = 'Last quickfix item',
+				['n [T']     = 'First tag',
+				['n ]T']     = 'Last tag',
+				['n [l']     = 'Previous location list item',
+				['n ]l']     = 'Next location list item',
+				['n [q']     = 'Previous quickfix item',
+				['n ]q']     = 'Next quickfix item',
+				['n [t']     = 'Previous tag',
+				['n ]t']     = 'Next tag',
+				-- Visual/select mode
+				['v <C-S>']  = 'LSP signature help',
+				['v gra']    = 'LSP code action',
+				['v #']      = 'Search backward for selection',
+				['v *']      = 'Search forward for selection',
+				['v @']      = 'Execute macro on selected lines',
+				['v Q']      = 'Format selected lines',
+				-- Visual mode
+				['x gra']    = 'LSP code action',
+				['x #']      = 'Search backward for selection',
+				['x *']      = 'Search forward for selection',
+				['x @']      = 'Execute macro on selected lines',
+				['x Q']      = 'Format selected lines',
+			}
 			local keymaps = {}
 			-- Show submodule picker shortcuts only when a submodule-aware picker is active
 			local tsm = require('lars.telescope-submodule')
@@ -103,27 +157,35 @@ return {
 			for _, mode in ipairs({ 'n', 'v', 'i', 'x', 'o', 't' }) do
 				-- Buffer-local keymaps first (marked with [buf])
 				for _, km in ipairs(vim.api.nvim_buf_get_keymap(0, mode)) do
+					local lhs  = km.lhs or ''
+					if lhs:find('<Plug>') then goto buf_continue end
 					local desc = km.desc or ''
 					local rhs  = type(km.rhs) == 'string' and km.rhs or ''
 					if desc ~= '' or rhs ~= '' then
 						table.insert(keymaps, {
 							mode    = mode,
-							lhs     = km.lhs or '',
+							lhs     = lhs,
 							desc    = '[buf] ' .. (desc ~= '' and desc or rhs),
 						})
 					end
+					::buf_continue::
 				end
 				-- Global keymaps
 				for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
+					local lhs  = km.lhs or ''
+					if lhs:find('<Plug>') then goto global_continue end
 					local desc = km.desc or ''
 					local rhs  = type(km.rhs) == 'string' and km.rhs or ''
+					if (rhs ~= '' and rhs:find('<Plug>')) then goto global_continue end
 					if desc ~= '' or rhs ~= '' then
+						local key = mode .. ' ' .. lhs
 						table.insert(keymaps, {
 							mode    = mode,
-							lhs     = km.lhs or '',
-							desc    = desc ~= '' and desc or rhs,
+							lhs     = lhs,
+							desc    = desc_overrides[key] or (desc ~= '' and desc or rhs),
 						})
 					end
+					::global_continue::
 				end
 			end
 
