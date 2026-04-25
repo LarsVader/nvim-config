@@ -599,6 +599,16 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                 end)
             end, "Submodule: pick from list")
 
+            -- Common branches shortcut for git_branches: all submodules at once
+            if picker_name == "git_branches" then
+                buf_set("i", "<C-b>", function()
+                    actions.close(prompt_bufnr)
+                    vim.schedule(function()
+                        M._open_common_branches_picker(git_root, submodules)
+                    end)
+                end, "Common branches: all submodules")
+            end
+
             -- For git_status: remap staging to <C-t>
             -- Use vim.schedule to override AFTER telescope sets up its own mappings
             if picker_name == "git_status" then
@@ -687,9 +697,399 @@ local function preview_command(picker_name, cwd, base_opts)
     return { "git", "-C", cwd, "ls-files", "--exclude-standard", "--cached", "--others" }
 end
 
+--- Run the actual checkout of a branch in multiple submodules concurrently.
+---@param git_root string
+---@param submodules string[] submodule relative paths
+---@param branch string branch name to checkout
+local function do_checkout(git_root, submodules, branch)
+    local pending = #submodules
+    local results = {}
+
+    for _, sm in ipairs(submodules) do
+        local cwd = M.submodule_cwd(git_root, sm)
+        vim.system(
+            { "git", "-C", cwd, "checkout", branch },
+            { text = true },
+            function(result)
+                vim.schedule(function()
+                    local label = sm_label(sm)
+                    if result.code == 0 then
+                        table.insert(results, label .. ": checked out " .. branch)
+                    else
+                        table.insert(results, label .. ": FAILED - " .. vim.trim(result.stderr or "unknown"))
+                    end
+                    pending = pending - 1
+                    if pending == 0 then
+                        local has_errors = false
+                        for _, r in ipairs(results) do
+                            if r:find("FAILED") then has_errors = true; break end
+                        end
+                        vim.notify(
+                            table.concat(results, "\n"),
+                            has_errors and vim.log.levels.WARN or vim.log.levels.INFO
+                        )
+                        vim.cmd("checktime")
+                    end
+                end)
+            end
+        )
+    end
+end
+
+--- Apply a dirty-handling action to submodules, then checkout.
+---@param git_root string
+---@param submodules string[]
+---@param dirty_sms string[] submodules that are dirty
+---@param branch string
+---@param action string "carry"|"stash"|"revert"|"commit"
+local function apply_dirty_action_and_checkout(git_root, submodules, dirty_sms, branch, action)
+    if action == "carry" then
+        do_checkout(git_root, submodules, branch)
+        return
+    end
+
+    local pending = #dirty_sms
+    local errors = {}
+
+    local function on_done()
+        if #errors > 0 then
+            vim.notify(
+                "Pre-checkout errors:\n" .. table.concat(errors, "\n"),
+                vim.log.levels.ERROR
+            )
+            return
+        end
+        do_checkout(git_root, submodules, branch)
+    end
+
+    for _, sm in ipairs(dirty_sms) do
+        local cwd = M.submodule_cwd(git_root, sm)
+        local cmd
+        if action == "stash" then
+            cmd = { "git", "-C", cwd, "stash", "push", "-m",
+                "Auto-stash before switching to " .. branch }
+        elseif action == "revert" then
+            cmd = { "git", "-C", cwd, "checkout", "--", "." }
+        elseif action == "commit" then
+            cmd = { "git", "-C", cwd, "commit", "-am",
+                "temporary commit due to branch switch to " .. branch }
+        end
+
+        vim.system(cmd, { text = true }, function(result)
+            vim.schedule(function()
+                if result.code ~= 0 then
+                    table.insert(errors, sm_label(sm) .. ": " .. vim.trim(result.stderr or "unknown"))
+                end
+                pending = pending - 1
+                if pending == 0 then
+                    on_done()
+                end
+            end)
+        end)
+    end
+end
+
+--- Checkout a branch in multiple submodules.
+--- If any submodule has uncommitted changes, prompts the user for how to handle them.
+---@param git_root string
+---@param submodules string[] submodule relative paths
+---@param branch string branch name to checkout
+function M._checkout_branch_in_submodules(git_root, submodules, branch)
+    -- Check which submodules are dirty (skip ones already on target branch)
+    local dirty_sms = {}
+    for _, sm in ipairs(submodules) do
+        -- Clear cached dirty status to get fresh result
+        _dirty_cache.entries[git_root .. "\0" .. sm] = nil
+        if M.is_dirty(git_root, sm) then
+            local current = M._get_branch(git_root, sm)
+            if current ~= branch then
+                table.insert(dirty_sms, sm)
+            end
+        end
+    end
+
+    if #dirty_sms == 0 then
+        do_checkout(git_root, submodules, branch)
+        return
+    end
+
+    -- Build description of dirty submodules
+    local dirty_desc = {}
+    for _, sm in ipairs(dirty_sms) do
+        table.insert(dirty_desc, "  " .. sm_label(sm))
+    end
+
+    local options = {
+        "Carry over changes (keep working tree as-is)",
+        "Stash changes (git stash)",
+        "Revert changes (discard all modifications)",
+        "Commit changes (auto-message: temporary commit)",
+    }
+    local action_map = { "carry", "stash", "revert", "commit" }
+
+    vim.ui.select(options, {
+        prompt = "Uncommitted changes in:\n" .. table.concat(dirty_desc, "\n") .. "\n\nHow to handle?",
+    }, function(choice, idx)
+        if not choice then
+            vim.notify("Checkout cancelled", vim.log.levels.INFO)
+            return
+        end
+        apply_dirty_action_and_checkout(git_root, submodules, dirty_sms, branch, action_map[idx])
+    end)
+end
+
+--- Show a picker of common branches and checkout on <CR>.
+---@param git_root string
+---@param submodules string[]
+---@param branches string[] sorted branch names common to all submodules
+function M._show_common_branches(git_root, submodules, branches)
+    if #branches == 0 then
+        vim.notify("No common branches found across selected submodules", vim.log.levels.INFO)
+        return
+    end
+
+    local pickers      = require("telescope.pickers")
+    local finders      = require("telescope.finders")
+    local previewers   = require("telescope.previewers")
+    local conf         = require("telescope.config").values
+    local actions      = require("telescope.actions")
+    local action_state = require("telescope.actions.state")
+
+    -- Get current branch and dirty status per submodule for preview
+    local current_branches = {}
+    local dirty_status = {}
+    for _, sm in ipairs(submodules) do
+        current_branches[sm] = M._get_branch(git_root, sm)
+        _dirty_cache.entries[git_root .. "\0" .. sm] = nil  -- clear cache for fresh result
+        dirty_status[sm] = M.is_dirty(git_root, sm)
+    end
+
+    -- Async diff cache: populated in background, preview updates when ready
+    local diff_cache = {}
+    local preview_state = { bufnr = nil, branch = nil }
+
+    --- Build preview lines for a given branch using current data.
+    local function build_preview_lines(branch_name)
+        local lines = { "Checkout '" .. branch_name .. "' in:", "" }
+        for _, sm in ipairs(submodules) do
+            local current = current_branches[sm]
+            local dirty_marker = dirty_status[sm] and " *" or ""
+            local indicator = current == branch_name
+                and "  (already on this branch)"
+                or "  <- " .. current
+            table.insert(lines, "  " .. sm_label(sm) .. dirty_marker .. indicator)
+        end
+        -- Add diffs for dirty submodules
+        for _, sm in ipairs(submodules) do
+            if dirty_status[sm] then
+                table.insert(lines, "")
+                table.insert(lines, "── " .. sm_label(sm) .. " changes ──")
+                if diff_cache[sm] then
+                    vim.list_extend(lines, diff_cache[sm])
+                else
+                    table.insert(lines, "Loading...")
+                end
+            end
+        end
+        return lines
+    end
+
+    -- Kick off async diff fetches for dirty submodules
+    for _, sm in ipairs(submodules) do
+        if dirty_status[sm] then
+            local cwd = M.submodule_cwd(git_root, sm)
+            vim.system(
+                { "git", "-C", cwd, "diff", "HEAD" },
+                { text = true },
+                function(result)
+                    vim.schedule(function()
+                        if result.code == 0 and result.stdout and result.stdout ~= "" then
+                            local dl = vim.split(result.stdout, "\n", { trimempty = true })
+                            if #dl > 200 then
+                                local truncated = { unpack(dl, 1, 200) }
+                                table.insert(truncated, "... (" .. (#dl - 200) .. " more lines)")
+                                dl = truncated
+                            end
+                            diff_cache[sm] = dl
+                        else
+                            diff_cache[sm] = { "(no changes)" }
+                        end
+                        -- Refresh preview if still showing
+                        if preview_state.bufnr
+                            and vim.api.nvim_buf_is_valid(preview_state.bufnr)
+                            and preview_state.branch then
+                            local lines = build_preview_lines(preview_state.branch)
+                            vim.api.nvim_buf_set_lines(preview_state.bufnr, 0, -1, false, lines)
+                            vim.bo[preview_state.bufnr].filetype = "diff"
+                        end
+                    end)
+                end
+            )
+        end
+    end
+
+    local sm_count = #submodules
+    local all_sms = M._state.submodules or {}
+    local title_suffix = sm_count == #all_sms
+        and "all submodules"
+        or sm_count .. " submodule" .. (sm_count > 1 and "s" or "")
+
+    pickers.new({}, {
+        prompt_title = "Common Branches (" .. title_suffix .. ")",
+        finder = finders.new_table({
+            results = branches,
+            entry_maker = function(branch)
+                local all_current = true
+                for _, sm in ipairs(submodules) do
+                    if current_branches[sm] ~= branch then
+                        all_current = false
+                        break
+                    end
+                end
+                local main_text = branch
+                local suffix = all_current and "  (current in all)" or ""
+                local full = main_text .. suffix
+                return {
+                    value = branch,
+                    display = function()
+                        if suffix == "" then
+                            return full
+                        end
+                        return full, { { { #main_text, #full }, "TelescopeResultsComment" } }
+                    end,
+                    ordinal = branch,
+                }
+            end,
+        }),
+        sorter = conf.generic_sorter({}),
+        previewer = previewers.new_buffer_previewer({
+            title = "Submodules",
+            define_preview = function(self, entry)
+                local bufnr = self.state.bufnr
+                if not vim.api.nvim_buf_is_valid(bufnr) then return end
+                preview_state.bufnr = bufnr
+                preview_state.branch = entry.value
+                local lines = build_preview_lines(entry.value)
+                vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+                vim.bo[bufnr].filetype = "diff"
+            end,
+        }),
+        attach_mappings = function(prompt_bufnr)
+            actions.select_default:replace(function()
+                local sel = action_state.get_selected_entry()
+                if not sel then return end
+                actions.close(prompt_bufnr)
+                vim.schedule(function()
+                    M._checkout_branch_in_submodules(git_root, submodules, sel.value)
+                end)
+            end)
+
+            -- <C-b> to go back to normal per-submodule branch picker
+            local s = M._state
+            if s and s.picker_name == "git_branches" and s.git_root then
+                vim.keymap.set("i", "<C-b>", function()
+                    actions.close(prompt_bufnr)
+                    vim.schedule(function()
+                        M._open_picker(s.picker_name, s.git_root, s.submodules,
+                            s.submodules[s.current_idx], s.base_opts)
+                    end)
+                end, { buffer = prompt_bufnr, desc = "Back to per-submodule branches" })
+            end
+
+            return true
+        end,
+    }):find()
+end
+
+--- Fetch branches for multiple submodules async, compute intersection,
+--- then open a common branches picker.
+---@param git_root string
+---@param submodules string[] submodule relative paths
+function M._open_common_branches_picker(git_root, submodules)
+    local pending = #submodules * 2  -- local + remote branches per submodule
+    local branch_sets = {}
+
+    for _, sm in ipairs(submodules) do
+        branch_sets[sm] = {}
+        local cwd = M.submodule_cwd(git_root, sm)
+
+        -- Fetch local branches
+        vim.system(
+            { "git", "-C", cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads/" },
+            { text = true },
+            function(result)
+                vim.schedule(function()
+                    if result.code == 0 and result.stdout then
+                        for _, line in ipairs(vim.split(result.stdout, "\n", { trimempty = true })) do
+                            branch_sets[sm][vim.trim(line)] = true
+                        end
+                    end
+                    pending = pending - 1
+                    if pending == 0 then
+                        M._finish_common_branches(git_root, submodules, branch_sets)
+                    end
+                end)
+            end
+        )
+
+        -- Fetch remote branches (strip=3 removes refs/remotes/<remote>/ prefix)
+        vim.system(
+            { "git", "-C", cwd, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/" },
+            { text = true },
+            function(result)
+                vim.schedule(function()
+                    if result.code == 0 and result.stdout then
+                        for _, line in ipairs(vim.split(result.stdout, "\n", { trimempty = true })) do
+                            local name = vim.trim(line)
+                            if name ~= "HEAD" and name ~= "" then
+                                branch_sets[sm][name] = true
+                            end
+                        end
+                    end
+                    pending = pending - 1
+                    if pending == 0 then
+                        M._finish_common_branches(git_root, submodules, branch_sets)
+                    end
+                end)
+            end
+        )
+    end
+end
+
+--- Compute intersection of branch sets and open the common branches picker.
+---@param git_root string
+---@param submodules string[]
+---@param branch_sets table<string, table<string, boolean>>
+function M._finish_common_branches(git_root, submodules, branch_sets)
+    local common = nil
+    for _, sm in ipairs(submodules) do
+        if common == nil then
+            common = {}
+            for b in pairs(branch_sets[sm]) do
+                common[b] = true
+            end
+        else
+            for b in pairs(common) do
+                if not branch_sets[sm][b] then
+                    common[b] = nil
+                end
+            end
+        end
+    end
+
+    local branches = {}
+    for b in pairs(common or {}) do
+        table.insert(branches, b)
+    end
+    table.sort(branches)
+
+    M._show_common_branches(git_root, submodules, branches)
+end
+
 --- Open a mini-picker to select a submodule, then reopen the git picker.
 --- Shows a live preview of what the parent picker would display for the
 --- highlighted submodule.
+--- For git_branches: supports multi-select (<C-t>) to pick common branches.
 function M._pick_submodule()
     local pickers      = require("telescope.pickers")
     local finders      = require("telescope.finders")
@@ -714,9 +1114,12 @@ function M._pick_submodule()
     end
 
     local preview_title = default_titles[s.picker_name] or s.picker_name
+    local prompt_title = s.picker_name == "git_branches"
+        and "Select Submodules (<C-t> multi-select, <CR> common branches)"
+        or "Select Submodule"
 
     pickers.new({}, {
-        prompt_title = "Select Submodule",
+        prompt_title = prompt_title,
         preview_title = preview_title .. " preview",
         finder = finders.new_table({
             results = entries,
@@ -769,15 +1172,52 @@ function M._pick_submodule()
             end,
         }),
         attach_mappings = function(prompt_bufnr)
-            actions.select_default:replace(function()
-                local sel = action_state.get_selected_entry()
-                actions.close(prompt_bufnr)
-                if sel then
-                    vim.schedule(function()
-                        M._open_picker(s.picker_name, s.git_root, s.submodules, sel.value.submodule, s.base_opts)
-                    end)
-                end
-            end)
+            -- For git_branches: support multi-select for common branch checkout
+            if s.picker_name == "git_branches" then
+                vim.schedule(function()
+                    if not vim.api.nvim_buf_is_valid(prompt_bufnr) then return end
+                    vim.keymap.set({ "i", "n" }, "<C-t>", function()
+                        actions.toggle_selection(prompt_bufnr)
+                        actions.move_selection_worse(prompt_bufnr)
+                    end, { buffer = prompt_bufnr, desc = "Toggle submodule selection" })
+                end)
+
+                actions.select_default:replace(function()
+                    local picker = action_state.get_current_picker(prompt_bufnr)
+                    local selections = picker:get_multi_selection()
+
+                    if #selections > 0 then
+                        -- Multi-select: open common branches for selected submodules
+                        local selected_sms = {}
+                        for _, sel in ipairs(selections) do
+                            table.insert(selected_sms, sel.value.submodule)
+                        end
+                        actions.close(prompt_bufnr)
+                        vim.schedule(function()
+                            M._open_common_branches_picker(s.git_root, selected_sms)
+                        end)
+                    else
+                        -- Single select: open common branches for just that submodule
+                        local sel = action_state.get_selected_entry()
+                        actions.close(prompt_bufnr)
+                        if sel then
+                            vim.schedule(function()
+                                M._open_picker(s.picker_name, s.git_root, s.submodules, sel.value.submodule, s.base_opts)
+                            end)
+                        end
+                    end
+                end)
+            else
+                actions.select_default:replace(function()
+                    local sel = action_state.get_selected_entry()
+                    actions.close(prompt_bufnr)
+                    if sel then
+                        vim.schedule(function()
+                            M._open_picker(s.picker_name, s.git_root, s.submodules, sel.value.submodule, s.base_opts)
+                        end)
+                    end
+                end)
+            end
             return true
         end,
     }):find()
