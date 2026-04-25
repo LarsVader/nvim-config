@@ -21,6 +21,16 @@ return {
 				}
 			},
 			defaults = {
+				layout_config = {
+					width = 0.95,
+					preview_width = 0.4,
+				},
+				path_display = function(opts, path)
+					-- Normalize to OS separator so filename_first splitting works on Windows
+					local sep = require("telescope.utils").get_separator()
+					path = path:gsub("[/\\]", sep)
+					return require("telescope.utils").transform_path({ path_display = { "filename_first" } }, path)
+				end,
 				file_ignore_patterns = { "tags", },
 				mappings = {
 					i = {
