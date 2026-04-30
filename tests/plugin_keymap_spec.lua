@@ -240,6 +240,7 @@ describe("plugin keymaps", function()
             { "<leader>dh", "file history" },
             { "<leader>dc", "close" },
             { "<leader>dm", "diff against main" },
+            { "<leader>do", "diff against origin" },
         }
         for _, k in ipairs(keys) do
             it(k[1] .. " (" .. k[2] .. ")", function()
