@@ -56,6 +56,16 @@ vim.api.nvim_create_autocmd("FileType", {
 	end,
 })
 
+vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
+    group = vim.api.nvim_create_augroup("GitCachePrewarm", {}),
+    callback = function()
+        vim.defer_fn(function()
+            local ok, gc = pcall(require, "lars.git-cache")
+            if ok then gc.prewarm() end
+        end, 100)
+    end,
+})
+
 local colorize = function()
 	vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
 	vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })

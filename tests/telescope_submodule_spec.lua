@@ -101,6 +101,84 @@ describe("telescope-submodule", function()
         end)
     end)
 
+    describe("PersistentTtlCache stale behavior", function()
+        local PersistentTtlCache = tsm._TtlCache
+
+        it("returns value and is_stale=false within fresh TTL", function()
+            local c = PersistentTtlCache.new(60, 120)
+            c:set("key", "value")
+            local val, is_stale = c:get("key")
+            assert.equals("value", val)
+            assert.is_false(is_stale)
+        end)
+
+        it("returns value and is_stale=true after fresh but before stale TTL", function()
+            local c = PersistentTtlCache.new(10, 120)
+            c:set("key", "value")
+            c.entries["key"].ts = c.entries["key"].ts - 30
+            local val, is_stale = c:get("key")
+            assert.equals("value", val)
+            assert.is_true(is_stale)
+        end)
+
+        it("returns nil after stale TTL", function()
+            local c = PersistentTtlCache.new(10, 60)
+            c:set("key", "value")
+            c.entries["key"].ts = c.entries["key"].ts - 120
+            local val = c:get("key")
+            assert.is_nil(val)
+        end)
+    end)
+
+    describe("git-cache persistence", function()
+        local gc = require("lars.git-cache")
+
+        after_each(function()
+            gc.clear_cache()
+        end)
+
+        it("round-trips data through JSON", function()
+            gc._buckets.toplevel:set("/test/path", "/test/root")
+            gc._persist_to_disk()
+            gc._buckets.toplevel:clear()
+            assert.is_nil(gc._buckets.toplevel:get("/test/path"))
+            gc._load_from_disk()
+            local val = gc._buckets.toplevel:get("/test/path")
+            assert.equals("/test/root", val)
+        end)
+
+        it("handles corrupt JSON gracefully", function()
+            local f = io.open(gc._cache_path, "w")
+            if f then
+                f:write("not valid json{{{")
+                f:close()
+            end
+            assert.has_no.errors(function()
+                gc._load_from_disk()
+            end)
+        end)
+
+        it("overwrites existing cache file on persist", function()
+            gc._buckets.toplevel:set("/old", "/old/root")
+            gc._persist_to_disk()
+            gc._buckets.toplevel:clear()
+            gc._buckets.toplevel:set("/new", "/new/root")
+            gc._persist_to_disk()
+            gc._buckets.toplevel:clear()
+            gc._load_from_disk()
+            assert.is_nil(gc._buckets.toplevel:get("/old"))
+            assert.equals("/new/root", gc._buckets.toplevel:get("/new"))
+        end)
+
+        it("clear_cache removes persistent file", function()
+            gc._buckets.toplevel:set("/test", "/root")
+            gc._persist_to_disk()
+            gc.clear_cache()
+            local f = io.open(gc._cache_path, "r")
+            assert.is_nil(f)
+        end)
+    end)
+
     describe("picker keymaps still registered", function()
         local keys = {
             { "<C-p>",      "git files" },

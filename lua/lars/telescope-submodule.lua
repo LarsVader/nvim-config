@@ -11,107 +11,28 @@
 
 local M = {}
 
---- TTL cache implementation.
---- Each cache is a table keyed by cache key, with entries { value, timestamp }.
----@class TtlCache
----@field entries table<string, { value: any, ts: number }>
----@field ttl number seconds before entries expire
-local TtlCache = {}
-TtlCache.__index = TtlCache
+local git_cache = require("lars.git-cache")
 
---- Create a new TTL cache.
----@param ttl number seconds
----@return TtlCache
-function TtlCache.new(ttl)
-    return setmetatable({ entries = {}, ttl = ttl }, TtlCache)
-end
+-- Expose PersistentTtlCache for testing (backward compat)
+M._TtlCache = git_cache._PersistentTtlCache
 
---- Get a cached value, or nil if expired/missing.
----@param key string
----@return any|nil
-function TtlCache:get(key)
-    local entry = self.entries[key]
-    if not entry then return nil end
-    if (vim.uv.now() - entry.ts) / 1000 > self.ttl then
-        self.entries[key] = nil
-        return nil
-    end
-    return entry.value
-end
-
---- Store a value in the cache.
----@param key string
----@param value any
-function TtlCache:set(key, value)
-    self.entries[key] = { value = value, ts = vim.uv.now() }
-end
-
---- Clear all entries.
-function TtlCache:clear()
-    self.entries = {}
-end
-
--- Expose TtlCache for testing
-M._TtlCache = TtlCache
-
---- Caches with appropriate TTLs
-local _toplevel_cache = TtlCache.new(86400)
-local _submodule_cache = TtlCache.new(86400)
-local _dirty_cache = TtlCache.new(10)
-
---- Get the git toplevel for a given path.
---- Returns the path in native OS format (backslashes on Windows) so that
---- telescope can correctly compute relative paths for display.
---- Results are cached with a 24-hour TTL.
+--- Get the git toplevel for a given path (delegated to persistent cache).
 ---@param path string
 ---@return string|nil absolute path in native format
 function M.git_toplevel(path)
-    local cached = _toplevel_cache:get(path)
-    if cached ~= nil then return cached end
-
-    local result = vim.fn.systemlist({ "git", "-C", path, "rev-parse", "--show-toplevel" })
-    if vim.v.shell_error == 0 and result[1] then
-        local toplevel = vim.fn.fnamemodify(result[1], ":p"):gsub("[/\\]$", "")
-        _toplevel_cache:set(path, toplevel)
-        return toplevel
-    end
-    return nil
+    return git_cache.git_toplevel(path)
 end
 
---- Get ordered list of submodule relative paths for a git root.
---- The root repo itself is always entry "." at index 1.
---- Results are cached with a 24-hour TTL.
+--- Get ordered list of submodule relative paths for a git root (delegated to persistent cache).
 ---@param git_root string
 ---@return string[]
 function M.get_submodules(git_root)
-    local cached = _submodule_cache:get(git_root)
-    if cached then return cached end
-
-    local result = vim.fn.systemlist({
-        "git", "-C", git_root,
-        "submodule", "status", "--recursive",
-    })
-
-    local submodules = { "." }
-    if vim.v.shell_error == 0 then
-        for _, line in ipairs(result) do
-            -- Each line looks like: " <hash> <path> (<ref>)" or "+<hash> <path> (<ref>)"
-            local sm_path = line:match("^[%s%+%-U]+%x+%s+(%S+)")
-            if sm_path and sm_path ~= "" then
-                table.insert(submodules, sm_path)
-            end
-        end
-    end
-
-    _submodule_cache:set(git_root, submodules)
-    return submodules
+    return git_cache.get_submodules(git_root)
 end
 
---- Clear all caches (toplevel, submodules, dirty status).
+--- Clear all caches (toplevel, submodules, dirty status, branches).
 function M.clear_cache()
-    _toplevel_cache:clear()
-    _submodule_cache:clear()
-    _dirty_cache:clear()
+    git_cache.clear_cache()
 end
 
 --- Determine which submodule the current buffer belongs to.
@@ -160,46 +81,20 @@ local function sm_label(sm)
     return sm == "." and "(root)" or sm
 end
 
---- Check whether a submodule has uncommitted changes.
---- Results are cached with a 10-second TTL.
+--- Check whether a submodule has uncommitted changes (delegated to persistent cache).
 ---@param git_root string
 ---@param sm string submodule relative path ("." for root)
 ---@return boolean
 function M.is_dirty(git_root, sm)
-    local cache_key = git_root .. "\0" .. sm
-    local cached = _dirty_cache:get(cache_key)
-    if cached ~= nil then return cached end
-
-    local cwd = M.submodule_cwd(git_root, sm)
-    local result = vim.fn.systemlist({ "git", "-C", cwd, "status", "--porcelain" })
-    local dirty = vim.v.shell_error == 0 and #result > 0
-    _dirty_cache:set(cache_key, dirty)
-    return dirty
+    return git_cache.is_dirty(git_root, sm)
 end
 
---- Readable label with dirty indicator.
----@param git_root string
----@param sm string
----@return string
-local function sm_label_dirty(git_root, sm)
-    local label = sm_label(sm)
-    if M.is_dirty(git_root, sm) then
-        label = label .. " *"
-    end
-    return label
-end
-
---- Get the current branch name for a submodule.
+--- Get the current branch name for a submodule (delegated to persistent cache).
 ---@param git_root string
 ---@param sm string submodule relative path ("." for root)
 ---@return string branch name or "detached"
 function M._get_branch(git_root, sm)
-    local cwd = M.submodule_cwd(git_root, sm)
-    local result = vim.fn.systemlist({ "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD" })
-    if vim.v.shell_error == 0 and result[1] then
-        return vim.trim(result[1])
-    end
-    return "detached"
+    return git_cache.get_branch(git_root, sm)
 end
 
 --- Whether a submodule-aware picker is currently active.
@@ -488,7 +383,7 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
 
     local cwd = M.submodule_cwd(git_root, current_sm)
     local base_title = default_titles[picker_name] or picker_name
-    local prompt_title = string.format("%s [%s]", base_title, sm_label_dirty(git_root, current_sm))
+    local prompt_title = string.format("%s [%s]", base_title, sm_label(current_sm))
 
     -- git ls-files: --recurse-submodules and --others are incompatible, so we
     -- combine two commands via bash to get tracked (incl. submodule) + untracked files.
@@ -517,6 +412,19 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                     close_commit_msg_float()
                 end,
             })
+
+            -- Async dirty indicator update
+            git_cache.is_dirty_async(git_root, current_sm, function(dirty)
+                if dirty then
+                    pcall(function()
+                        local picker = require("telescope.actions.state").get_current_picker(prompt_bufnr)
+                        if picker then
+                            local new_title = string.format("%s [%s *]", base_title, sm_label(current_sm))
+                            picker.prompt_border:change_title(new_title)
+                        end
+                    end)
+                end
+            end)
 
             -- Commit message preview for commit pickers
             if picker_name == "git_commits" or picker_name == "git_bcommits" then
@@ -799,7 +707,7 @@ function M._checkout_branch_in_submodules(git_root, submodules, branch)
     local dirty_sms = {}
     for _, sm in ipairs(submodules) do
         -- Clear cached dirty status to get fresh result
-        _dirty_cache.entries[git_root .. "\0" .. sm] = nil
+        git_cache.clear_dirty(git_root, sm)
         if M.is_dirty(git_root, sm) then
             local current = M._get_branch(git_root, sm)
             if current ~= branch then
@@ -860,7 +768,7 @@ function M._show_common_branches(git_root, submodules, branches)
     local dirty_status = {}
     for _, sm in ipairs(submodules) do
         current_branches[sm] = M._get_branch(git_root, sm)
-        _dirty_cache.entries[git_root .. "\0" .. sm] = nil  -- clear cache for fresh result
+        git_cache.clear_dirty(git_root, sm)
         dirty_status[sm] = M.is_dirty(git_root, sm)
     end
 

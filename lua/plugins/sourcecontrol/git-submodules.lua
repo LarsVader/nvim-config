@@ -3,22 +3,15 @@
 --   <leader>gC  Checkout branch in selected submodules
 
 local function get_all_submodules()
-    local result = vim.fn.systemlist({
-        "git", "submodule", "status",
-    })
-    if vim.v.shell_error ~= 0 then
-        return {}
-    end
+    local gc = require("lars.git-cache")
+    local git_root = gc.git_toplevel(vim.fn.getcwd())
+    if not git_root then return {} end
+    local submodule_paths = gc.get_submodules(git_root)
     local subs = {}
-    for _, line in ipairs(result) do
-        local path = line:match("^[%s%+%-U]*%x+%s+(%S+)")
-        if path and path ~= "" then
-            -- Get current branch
-            local branch_lines = vim.fn.systemlist({
-                "git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD",
-            })
-            local branch = (branch_lines[1] or "detached"):gsub("%s+$", "")
-            table.insert(subs, { name = path, branch = branch })
+    for _, sm in ipairs(submodule_paths) do
+        if sm ~= "." then
+            local branch = gc.get_branch(git_root, sm)
+            table.insert(subs, { name = sm, branch = branch })
         end
     end
     return subs
@@ -322,30 +315,26 @@ local function submodule_commit_picker()
     local actions = require("telescope.actions")
     local action_state = require("telescope.actions.state")
 
-    get_all_submodules_with_status(function(subs)
-    if #subs == 0 then
-        vim.notify("No submodules found", vim.log.levels.INFO)
-        return
+    local function make_entry_maker()
+        return function(entry)
+            local prefix = entry.dirty and "" or "  "
+            local main = prefix .. entry.name .. entry.summary
+            local branch_part = "  " .. entry.branch
+            local full = main .. branch_part
+            return {
+                value = entry,
+                display = function()
+                    return full, { { { #main, #full }, "TelescopeResultsComment" } }
+                end,
+                ordinal = entry.name,
+            }
+        end
     end
 
-    pickers.new({}, {
-        prompt_title = "Submodule Commit: select dirty submodules (<C-t> to multi-select)",
-        finder = finders.new_table({
-            results = subs,
-            entry_maker = function(entry)
-                local prefix = entry.dirty and "" or "  "
-                local main = prefix .. entry.name .. entry.summary
-                local branch_part = "  " .. entry.branch
-                local full = main .. branch_part
-                return {
-                    value = entry,
-                    display = function()
-                        return full, { { { #main, #full }, "TelescopeResultsComment" } }
-                    end,
-                    ordinal = entry.name,
-                }
-            end,
-        }),
+    -- Open picker immediately with empty finder, refresh when data arrives
+    local picker_obj = pickers.new({}, {
+        prompt_title = "Submodule Commit: loading...",
+        finder = finders.new_table({ results = {} }),
         sorter = conf.generic_sorter({}),
         previewer = previewers.new_buffer_previewer({
             title = "Submodule Diff",
@@ -436,8 +425,30 @@ local function submodule_commit_picker()
             end)
             return true
         end,
-    }):find()
-    end) -- get_all_submodules_with_status callback
+    })
+    picker_obj:find()
+
+    get_all_submodules_with_status(function(subs)
+        if #subs == 0 then
+            pcall(function()
+                if picker_obj.prompt_bufnr and vim.api.nvim_buf_is_valid(picker_obj.prompt_bufnr) then
+                    actions.close(picker_obj.prompt_bufnr)
+                end
+            end)
+            vim.notify("No submodules found", vim.log.levels.INFO)
+            return
+        end
+
+        pcall(function()
+            picker_obj:refresh(finders.new_table({
+                results = subs,
+                entry_maker = make_entry_maker(),
+            }), { reset_prompt = false })
+            picker_obj.prompt_border:change_title(
+                "Submodule Commit: select dirty submodules (<C-t> to multi-select)"
+            )
+        end)
+    end)
 end
 
 local function submodule_checkout_picker()
