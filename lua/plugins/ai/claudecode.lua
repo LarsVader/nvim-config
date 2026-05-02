@@ -12,8 +12,8 @@ return {
             -- tests, etc.), so the whole process tree is throttled.
             -- command = 'cmd /c start "" /B /WAIT /LOW /AFFINITY E claude',
             window = {
-                width_ratio = 0.33,
-                position = 'float',
+                split_ratio = 0.4,
+                position = 'botright vsplit',
                 enter_insert = true,
                 hide_numbers = true,
                 hide_signcolumn = true,
