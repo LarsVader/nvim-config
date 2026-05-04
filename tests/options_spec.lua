@@ -29,8 +29,8 @@ describe("editor options", function()
         assert.is_true(vim.opt.spell:get(), "spell should be true")
     end)
 
-    it("hlsearch disabled", function()
-        assert.is_false(vim.opt.hlsearch:get(), "hlsearch should be false")
+    it("hlsearch enabled", function()
+        assert.is_true(vim.opt.hlsearch:get(), "hlsearch should be true")
     end)
 
     it("incsearch enabled", function()

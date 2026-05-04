@@ -7,7 +7,7 @@ vim.opt.smartindent = true
 vim.opt.spell = true
 vim.opt.spelllang = { "en", "de" }
 vim.opt.undofile = true -- allows undo after quit and reopen
-vim.opt.hlsearch = false
+vim.opt.hlsearch = true
 vim.opt.incsearch = true
 vim.opt.scrolloff = 8 -- scroll when moving up or down with jk when 8 lines  away from top or bottom
 vim.opt.termguicolors = true
@@ -15,6 +15,7 @@ vim.opt.guifont= "nerd-fonts" -- icons of eg lualine do not work without. Font n
 vim.opt.ignorecase = true
 vim.opt.smartcase = true -- if search term contains upper case letters use case sensitive search
 vim.opt.linebreak = true -- wrap at word boundaries, not mid-word
+vim.o.signcolumn = "yes:1"
 
 -- Show invisible characters
 vim.opt.list = true

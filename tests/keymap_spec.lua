@@ -111,6 +111,12 @@ describe("global keymaps", function()
             assert.is_not_nil(km, "<leader>jb not found")
             assert.is_not_nil(km.desc:lower():find("base class"), "desc missing 'base class'")
         end)
+
+        it("clear search highlight <Esc>", function()
+            local km = h.find_keymap("n", "<Esc>")
+            assert.is_not_nil(km, "<Esc> not found")
+            assert.is_not_nil(km.desc:lower():find("search highlight"), "desc missing 'search highlight'")
+        end)
     end)
 
     -- Fold keymaps (discoverable via <leader>fk)

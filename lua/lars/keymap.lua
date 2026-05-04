@@ -82,6 +82,7 @@ vim.keymap.set('n', '<C-x>', '<C-x>', { desc = "Decrement number under cursor" }
 vim.keymap.set('n', '@:', '@:', { desc = "Repeat last command-line command" })
 vim.keymap.set('n', 'q:', 'q:', { desc = "Open command-line history window" })
 vim.keymap.set('n', 'q/', 'q/', { desc = "Open search history window" })
+vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>', { desc = "Clear search highlight" })
 
 -- Terminal mode: exit and window navigation
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
