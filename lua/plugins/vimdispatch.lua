@@ -1,18 +1,3 @@
-local function makefile_targets(arg_lead)
-	local targets = {}
-	local f = io.open("Makefile", "r")
-	if not f then return targets end
-	for line in f:lines() do
-		local target = line:match("^([%w_%-]+)%s*:")
-		if target and target:find(arg_lead, 1, true) == 1 then
-			targets[#targets + 1] = target
-		end
-	end
-	f:close()
-	table.sort(targets)
-	return targets
-end
-
 return {
 	{
 		'tpope/vim-dispatch',
@@ -49,7 +34,23 @@ return {
 				bang = true,
 				nargs = "*",
 				complete = function(arg_lead)
-					return makefile_targets(arg_lead)
+					local obj = vim.system({'make', '-qp'}, {text = true}):wait()
+					if not obj.stdout or obj.stdout == "" then return {} end
+					local seen = {}
+					local result = {}
+					for line in obj.stdout:gmatch("[^\r\n]+") do
+						local before_colon = line:match("^([a-zA-Z0-9][^$#/\t=]*):")
+						if before_colon and line:sub(#before_colon + 2, #before_colon + 2) ~= "=" then
+							for word in before_colon:gmatch("%S+") do
+								if not seen[word] and (arg_lead == "" or word:find(arg_lead, 1, true) == 1) then
+									seen[word] = true
+									result[#result + 1] = word
+								end
+							end
+						end
+					end
+					table.sort(result)
+					return result
 				end,
 			})
 		end,
