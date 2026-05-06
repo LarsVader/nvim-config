@@ -397,6 +397,18 @@ describe("plugin smoke tests", function()
         end)
     end)
 
+    describe("sidekick", function()
+        it("loads without error", function()
+            local ok, err = h.force_load_plugin("sidekick.nvim")
+            assert.is_true(ok, "sidekick failed to load: " .. tostring(err))
+        end)
+
+        it("sidekick.cli.toggle is a function", function()
+            local cli = require("sidekick.cli")
+            assert.equals("function", type(cli.toggle), "sidekick.cli.toggle should be a function")
+        end)
+    end)
+
     describe("xaml-lsp", function()
         -- When Mason/xaml-lsp is not installed, the plugin returns {} early
         -- and skips vim.lsp.config registration. Detect this so tests that

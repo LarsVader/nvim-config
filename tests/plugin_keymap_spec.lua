@@ -165,18 +165,42 @@ describe("plugin keymaps", function()
         end
     end)
 
-    describe("claude-code", function()
+    describe("sidekick", function()
         local keys = {
-            { "<C-,>", "toggle" },
-            { "<leader>ar", "resume" },
-            { "<leader>ad", "diff" },
-            { "<leader>ak", "kill" },
+            { "<C-,>", "toggle current CLI" },
+            { "<leader>ac", "toggle Claude CLI" },
+            { "<leader>ag", "toggle GitHub Copilot CLI" },
+            { "<leader>ar", "resume Claude" },
+            { "<leader>ak", "kill Claude session" },
+            { "<leader>ap", "prompt" },
         }
         for _, k in ipairs(keys) do
             it(k[1] .. " (" .. k[2] .. ")", function()
                 assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
             end)
         end
+
+        it("<C-,> works in terminal mode", function()
+            assert.is_true(h.has_keymap("t", "<C-,>"), "<C-,> not found in terminal mode")
+        end)
+
+        it("<leader>as (send selection, visual)", function()
+            assert.is_true(h.has_keymap("x", "<leader>as"), "<leader>as not found in visual mode")
+        end)
+
+        it("<leader>cm registered buffer-local in gitcommit filetype", function()
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.bo[buf].filetype = "gitcommit"
+            local found = false
+            for _, km in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+                if km.lhs == " cm" then
+                    found = true
+                    break
+                end
+            end
+            vim.api.nvim_buf_delete(buf, { force = true })
+            assert.is_true(found, "<leader>cm not registered for gitcommit buffer")
+        end)
     end)
 
     describe("git-cherry-pick", function()
