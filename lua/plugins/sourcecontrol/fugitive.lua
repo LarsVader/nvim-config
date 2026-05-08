@@ -4,7 +4,8 @@ return {
 		dependencies = { 'tpope/vim-rhubarb', },
 		cmd = 'G',
 		config = function()
-			-- When a commit editor opens, show it alongside status in two side-by-side floats
+			-- When a commit editor opens, show it in a 3-panel float layout:
+			-- top-left = commit message, bottom-left = recent commits, right = staged diff
 			-- (bufhidden is reset after placing in float so fugitive's :wq commit flow works)
 			vim.api.nvim_create_autocmd('FileType', {
 				pattern = 'gitcommit',
@@ -55,28 +56,119 @@ return {
 						vim.bo[diff_buf].bufhidden = 'wipe'
 						vim.bo[diff_buf].filetype = 'diff'
 
-						-- Two side-by-side floats
+						-- Build recent commits buffer (bottom-left, async)
+						local log_buf = vim.api.nvim_create_buf(false, true)
+						vim.api.nvim_buf_set_lines(log_buf, 0, -1, false, { 'Loading...' })
+						vim.bo[log_buf].modifiable = false
+						vim.bo[log_buf].bufhidden = 'wipe'
+						vim.bo[log_buf].filetype = 'git'
+
+						-- Async: get staged submodule names, then build log
+						vim.system(
+							{ 'git', '-C', worktree, 'diff', '--cached', '--name-only', '--diff-filter=M' },
+							{ text = true },
+							function(result)
+								-- Also get submodule list to filter
+								vim.system(
+									{ 'git', '-C', worktree, 'submodule', '--quiet', 'foreach', 'echo $sm_path' },
+									{ text = true },
+									function(sm_result)
+										vim.schedule(function()
+											if not vim.api.nvim_buf_is_valid(log_buf) then return end
+											local sm_set = {}
+											if sm_result.code == 0 and sm_result.stdout then
+												for _, p in ipairs(vim.split(sm_result.stdout, '\n', { trimempty = true })) do
+													sm_set[p] = true
+												end
+											end
+											-- Find staged files that are submodules
+											local staged_subs = {}
+											if result.code == 0 and result.stdout then
+												for _, f in ipairs(vim.split(result.stdout, '\n', { trimempty = true })) do
+													if sm_set[f] then
+														table.insert(staged_subs, f)
+													end
+												end
+											end
+
+											-- Build log: always show main repo, plus staged submodules
+											local pending = 1 + #staged_subs
+											local log_results = {} -- ordered: [1]=repo, [2..]=submodules
+											local log_names = { worktree }
+											local log_titles = { vim.fn.fnamemodify(worktree, ':t') }
+											for _, sm in ipairs(staged_subs) do
+												table.insert(log_names, worktree .. '/' .. sm)
+												table.insert(log_titles, sm)
+											end
+
+											for idx, path in ipairs(log_names) do
+												log_results[idx] = { 'Loading...' }
+												vim.system(
+													{ 'git', '-C', path, 'log', '--oneline', '-n', '15' },
+													{ text = true },
+													function(log_res)
+														vim.schedule(function()
+															if not vim.api.nvim_buf_is_valid(log_buf) then return end
+															if log_res.code == 0 and log_res.stdout and log_res.stdout ~= '' then
+																log_results[idx] = vim.split(log_res.stdout, '\n', { trimempty = true })
+															else
+																log_results[idx] = { '(no commits)' }
+															end
+															pending = pending - 1
+															if pending == 0 then
+																local lines = {}
+																for i, title in ipairs(log_titles) do
+																	if i > 1 then table.insert(lines, '') end
+																	table.insert(lines, '── ' .. title .. ' ──')
+																	vim.list_extend(lines, log_results[i])
+																end
+																vim.bo[log_buf].modifiable = true
+																vim.api.nvim_buf_set_lines(log_buf, 0, -1, false, lines)
+																vim.bo[log_buf].modifiable = false
+															end
+														end)
+													end
+												)
+											end
+										end)
+									end
+								)
+							end
+						)
+
+						-- Layout: left column split top/bottom, right column full height
 						local total_w = math.floor(vim.o.columns * 0.9)
 						local h = math.floor(vim.o.lines * 0.9)
-						local commit_w = math.floor(total_w * 0.5)
-						local diff_w = total_w - commit_w - 2
+						local left_w = math.floor(total_w * 0.5)
+						local right_w = total_w - left_w - 2
 						local row = math.floor((vim.o.lines - h) / 2)
 						local col = math.floor((vim.o.columns - total_w) / 2)
+						local commit_h = math.floor(h * 0.4)
+						local log_h = h - commit_h - 2
 
-						-- Left: commit editor
+						-- Top-left: commit editor
 						local commit_float = vim.api.nvim_open_win(commit_buf, true, {
 							relative = 'editor',
-							width = commit_w, height = h,
+							width = left_w, height = commit_h,
 							col = col, row = row,
 							style = 'minimal', border = 'rounded',
 							title = ' Commit Message ', title_pos = 'center',
 						})
 
-						-- Right: diff
+						-- Bottom-left: recent commits
+						local log_float = vim.api.nvim_open_win(log_buf, false, {
+							relative = 'editor',
+							width = left_w, height = log_h,
+							col = col, row = row + commit_h + 2,
+							style = 'minimal', border = 'rounded',
+							title = ' Recent Commits ', title_pos = 'center',
+						})
+
+						-- Right: diff (full height)
 						local status_float = vim.api.nvim_open_win(diff_buf, false, {
 							relative = 'editor',
-							width = diff_w, height = h,
-							col = col + commit_w + 2, row = row,
+							width = right_w, height = h,
+							col = col + left_w + 2, row = row,
 							style = 'minimal', border = 'rounded',
 							title = ' Staged Changes ', title_pos = 'center',
 						})
@@ -84,43 +176,59 @@ return {
 
 						-- Restore fugitive's original bufhidden so :wq triggers commit
 						vim.bo[commit_buf].bufhidden = orig_bufhidden
-
 						-- Focus the commit editor
 						vim.api.nvim_set_current_win(commit_float)
 
-						-- Navigation between the two floats
-						for _, map in ipairs({ '<C-w>w', '<C-w><C-w>', '<C-l>' }) do
-							vim.keymap.set('n', map, function()
-								vim.api.nvim_set_current_win(status_float)
-							end, { buffer = commit_buf })
+						-- Navigation between the three floats
+						local all_floats = { commit_float, log_float, status_float }
+						local all_bufs = { commit_buf, log_buf, status_buf }
+						for idx, float in ipairs(all_floats) do
+							local buf = all_bufs[idx]
+							for _, map in ipairs({ '<C-w>w', '<C-w><C-w>' }) do
+								vim.keymap.set('n', map, function()
+									local next = all_floats[(idx % #all_floats) + 1]
+									if vim.api.nvim_win_is_valid(next) then
+										vim.api.nvim_set_current_win(next)
+									end
+								end, { buffer = buf })
+							end
 						end
-						for _, map in ipairs({ '<C-w>w', '<C-w><C-w>', '<C-h>' }) do
-							vim.keymap.set('n', map, function()
-								vim.api.nvim_set_current_win(commit_float)
-							end, { buffer = status_buf })
-						end
-						vim.keymap.set('n', '<C-h>', function()
-							vim.api.nvim_set_current_win(commit_float)
+						vim.keymap.set('n', '<C-j>', function()
+							if vim.api.nvim_win_is_valid(log_float) then vim.api.nvim_set_current_win(log_float) end
 						end, { buffer = commit_buf })
 						vim.keymap.set('n', '<C-l>', function()
-							vim.api.nvim_set_current_win(status_float)
+							if vim.api.nvim_win_is_valid(status_float) then vim.api.nvim_set_current_win(status_float) end
+						end, { buffer = commit_buf })
+						vim.keymap.set('n', '<C-k>', function()
+							if vim.api.nvim_win_is_valid(commit_float) then vim.api.nvim_set_current_win(commit_float) end
+						end, { buffer = log_buf })
+						vim.keymap.set('n', '<C-l>', function()
+							if vim.api.nvim_win_is_valid(status_float) then vim.api.nvim_set_current_win(status_float) end
+						end, { buffer = log_buf })
+						vim.keymap.set('n', '<C-h>', function()
+							if vim.api.nvim_win_is_valid(commit_float) then vim.api.nvim_set_current_win(commit_float) end
 						end, { buffer = status_buf })
 
-						-- Clean up both floats when either one closes
+						-- Clean up all floats when any one closes
 						local cg = vim.api.nvim_create_augroup('FugitiveCommitCleanup', { clear = true })
 						vim.api.nvim_create_autocmd('WinClosed', {
 							group = cg,
 							callback = function()
 								vim.schedule(function()
 									if not vim.api.nvim_win_is_valid(commit_float)
+										or not vim.api.nvim_win_is_valid(log_float)
 										or not vim.api.nvim_win_is_valid(status_float) then
-										if vim.api.nvim_win_is_valid(status_float) then
-											vim.api.nvim_win_close(status_float, true)
-										end
-										if vim.api.nvim_buf_is_valid(status_buf) then
-											vim.api.nvim_buf_delete(status_buf, { force = true })
-										end
 										pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveCommitCleanup')
+										for _, float in ipairs({ status_float, log_float }) do
+											if vim.api.nvim_win_is_valid(float) then
+												vim.api.nvim_win_close(float, true)
+											end
+										end
+										for _, buf in ipairs({ status_buf, log_buf }) do
+											if vim.api.nvim_buf_is_valid(buf) then
+												vim.api.nvim_buf_delete(buf, { force = true })
+											end
+										end
 									end
 								end)
 							end,

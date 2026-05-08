@@ -44,6 +44,43 @@ local function build_diff_summary(names)
     return lines
 end
 
+--- Async-load recent commit log into a buffer.
+---@param names string[] submodule paths
+---@param buf number buffer handle to populate
+local function load_commit_log_async(names, buf)
+    local pending = #names
+    local results = {} -- index -> lines
+    for idx, name in ipairs(names) do
+        results[idx] = { "Loading..." }
+        vim.system(
+            { "git", "-C", name, "log", "--oneline", "-n", "15" },
+            { text = true },
+            function(result)
+                vim.schedule(function()
+                    if not vim.api.nvim_buf_is_valid(buf) then return end
+                    if result.code == 0 and result.stdout and result.stdout ~= "" then
+                        results[idx] = vim.split(result.stdout, "\n", { trimempty = true })
+                    else
+                        results[idx] = { "(no commits)" }
+                    end
+                    pending = pending - 1
+                    if pending == 0 then
+                        local lines = {}
+                        for i, name2 in ipairs(names) do
+                            if i > 1 then table.insert(lines, "") end
+                            table.insert(lines, "── " .. name2 .. " ──")
+                            vim.list_extend(lines, results[i])
+                        end
+                        vim.bo[buf].modifiable = true
+                        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+                        vim.bo[buf].modifiable = false
+                    end
+                end)
+            end
+        )
+    end
+end
+
 --- Execute git commit -am in each submodule, then update parent refs.
 ---@param names string[] submodule paths
 ---@param msg string commit message
@@ -86,14 +123,14 @@ local function do_submodule_commits(names, msg)
     end
 end
 
---- Open two side-by-side floats: left = commit message editor, right = status summary.
---- :wq on the commit buffer triggers the commits.
+--- Open three floats: top-left = commit message, bottom-left = recent commits,
+--- right = diff. :wq on the commit buffer triggers the commits.
 ---@param names string[] submodule paths
 local function open_commit_float(names)
     -- Build full diff for the right panel
     local diff_lines = build_diff_summary(names)
 
-    -- Create commit message buffer (left)
+    -- Create commit message buffer (top-left)
     -- buftype=acwrite + a buffer name so :w triggers BufWriteCmd without E32
     local commit_buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_name(commit_buf, "SUBMODULE_COMMIT_MSG")
@@ -109,6 +146,14 @@ local function open_commit_float(names)
     vim.bo[commit_buf].buftype = "acwrite"
     vim.bo[commit_buf].modifiable = true
 
+    -- Create recent commits buffer (bottom-left, async)
+    local log_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(log_buf, 0, -1, false, { "Loading..." })
+    vim.bo[log_buf].modifiable = false
+    vim.bo[log_buf].bufhidden = "wipe"
+    vim.bo[log_buf].filetype = "git"
+    load_commit_log_async(names, log_buf)
+
     -- Create diff buffer (right)
     local status_buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(status_buf, 0, -1, false, diff_lines)
@@ -116,26 +161,39 @@ local function open_commit_float(names)
     vim.bo[status_buf].bufhidden = "wipe"
     vim.bo[status_buf].filetype = "diff"
 
-    -- Layout: two side-by-side floats matching fugitive's commit style
+    -- Layout: left column split top/bottom, right column full height
     local total_w = math.floor(vim.o.columns * 0.9)
     local h = math.floor(vim.o.lines * 0.9)
-    local commit_w = math.floor(total_w * 0.5)
-    local status_w = total_w - commit_w - 2
+    local left_w = math.floor(total_w * 0.5)
+    local right_w = total_w - left_w - 2
     local row = math.floor((vim.o.lines - h) / 2)
     local col = math.floor((vim.o.columns - total_w) / 2)
+    local commit_h = math.floor(h * 0.4)
+    local log_h = h - commit_h - 2
 
+    -- Top-left: commit editor
     local commit_float = vim.api.nvim_open_win(commit_buf, true, {
         relative = "editor",
-        width = commit_w, height = h,
+        width = left_w, height = commit_h,
         col = col, row = row,
         style = "minimal", border = "rounded",
         title = " Commit Message ", title_pos = "center",
     })
 
+    -- Bottom-left: recent commits
+    local log_float = vim.api.nvim_open_win(log_buf, false, {
+        relative = "editor",
+        width = left_w, height = log_h,
+        col = col, row = row + commit_h + 2,
+        style = "minimal", border = "rounded",
+        title = " Recent Commits ", title_pos = "center",
+    })
+
+    -- Right: diff (full height)
     local status_float = vim.api.nvim_open_win(status_buf, false, {
         relative = "editor",
-        width = status_w, height = h,
-        col = col + commit_w + 2, row = row,
+        width = right_w, height = h,
+        col = col + left_w + 2, row = row,
         style = "minimal", border = "rounded",
         title = " Changes ", title_pos = "center",
     })
@@ -145,21 +203,38 @@ local function open_commit_float(names)
     vim.api.nvim_win_set_cursor(commit_float, { 1, 0 })
     vim.cmd("startinsert")
 
-    -- Navigation between the two floats
-    for _, map in ipairs({ "<C-w>w", "<C-w><C-w>", "<C-l>" }) do
-        vim.keymap.set("n", map, function()
-            if vim.api.nvim_win_is_valid(status_float) then
-                vim.api.nvim_set_current_win(status_float)
-            end
-        end, { buffer = commit_buf })
+    -- Navigation between the three floats
+    -- commit (top-left): <C-j> → log, <C-l> → diff
+    -- log (bottom-left):  <C-k> → commit, <C-l> → diff
+    -- diff (right):       <C-h> → commit
+    -- <C-w>w / <C-w><C-w> cycles: commit → log → diff → commit
+    local all_floats = { commit_float, log_float, status_float }
+    for idx, float in ipairs(all_floats) do
+        local buf = vim.api.nvim_win_get_buf(float)
+        for _, map in ipairs({ "<C-w>w", "<C-w><C-w>" }) do
+            vim.keymap.set("n", map, function()
+                local next = all_floats[(idx % #all_floats) + 1]
+                if vim.api.nvim_win_is_valid(next) then
+                    vim.api.nvim_set_current_win(next)
+                end
+            end, { buffer = buf })
+        end
     end
-    for _, map in ipairs({ "<C-w>w", "<C-w><C-w>", "<C-h>" }) do
-        vim.keymap.set("n", map, function()
-            if vim.api.nvim_win_is_valid(commit_float) then
-                vim.api.nvim_set_current_win(commit_float)
-            end
-        end, { buffer = status_buf })
-    end
+    vim.keymap.set("n", "<C-j>", function()
+        if vim.api.nvim_win_is_valid(log_float) then vim.api.nvim_set_current_win(log_float) end
+    end, { buffer = commit_buf })
+    vim.keymap.set("n", "<C-l>", function()
+        if vim.api.nvim_win_is_valid(status_float) then vim.api.nvim_set_current_win(status_float) end
+    end, { buffer = commit_buf })
+    vim.keymap.set("n", "<C-k>", function()
+        if vim.api.nvim_win_is_valid(commit_float) then vim.api.nvim_set_current_win(commit_float) end
+    end, { buffer = log_buf })
+    vim.keymap.set("n", "<C-l>", function()
+        if vim.api.nvim_win_is_valid(status_float) then vim.api.nvim_set_current_win(status_float) end
+    end, { buffer = log_buf })
+    vim.keymap.set("n", "<C-h>", function()
+        if vim.api.nvim_win_is_valid(commit_float) then vim.api.nvim_set_current_win(commit_float) end
+    end, { buffer = status_buf })
 
     -- Pending commit message: set by BufWriteCmd, consumed by WinClosed.
     local pending_msg = nil
@@ -188,7 +263,7 @@ local function open_commit_float(names)
         end,
     })
 
-    -- WinClosed: when either float closes, clean up the other and
+    -- WinClosed: when any float closes, clean up the others and
     -- run the commit if a message was written.
     local cleanup_group = vim.api.nvim_create_augroup("SubmoduleCommitCleanup", { clear = true })
     vim.api.nvim_create_autocmd("WinClosed", {
@@ -196,20 +271,20 @@ local function open_commit_float(names)
         callback = function()
             vim.schedule(function()
                 local commit_gone = not vim.api.nvim_win_is_valid(commit_float)
+                local log_gone = not vim.api.nvim_win_is_valid(log_float)
                 local status_gone = not vim.api.nvim_win_is_valid(status_float)
-                if not commit_gone and not status_gone then return end
+                if not commit_gone and not log_gone and not status_gone then return end
 
                 -- Delete the augroup FIRST to prevent re-entry when
-                -- closing the other float triggers another WinClosed
+                -- closing the other floats triggers another WinClosed
                 pcall(vim.api.nvim_del_augroup_by_name, "SubmoduleCommitCleanup")
                 local msg = pending_msg
                 pending_msg = nil
 
-                if vim.api.nvim_win_is_valid(status_float) then
-                    vim.api.nvim_win_close(status_float, true)
-                end
-                if vim.api.nvim_win_is_valid(commit_float) then
-                    vim.api.nvim_win_close(commit_float, true)
+                for _, float in ipairs({ status_float, log_float, commit_float }) do
+                    if vim.api.nvim_win_is_valid(float) then
+                        vim.api.nvim_win_close(float, true)
+                    end
                 end
 
                 if msg and msg ~= "" then

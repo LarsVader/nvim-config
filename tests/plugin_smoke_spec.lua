@@ -61,19 +61,19 @@ describe("plugin smoke tests", function()
             assert.equals("function", type(builtin.find_files), "find_files should be a function")
         end)
 
-        it("defaults remap Tab/S-Tab to move_selection_next/previous", function()
+        it("remaps Tab/S-Tab to move_selection_previous/next (inverted)", function()
             local conf = require("telescope.config").values
             local actions = require("telescope.actions")
             local i_mappings = conf.mappings.i
             local n_mappings = conf.mappings.n
-            assert.equals(actions.move_selection_next, i_mappings["<Tab>"],
-                "insert mode <Tab> should be move_selection_next")
-            assert.equals(actions.move_selection_previous, i_mappings["<S-Tab>"],
-                "insert mode <S-Tab> should be move_selection_previous")
-            assert.equals(actions.move_selection_next, n_mappings["<Tab>"],
-                "normal mode <Tab> should be move_selection_next")
-            assert.equals(actions.move_selection_previous, n_mappings["<S-Tab>"],
-                "normal mode <S-Tab> should be move_selection_previous")
+            assert.equals(actions.move_selection_previous, i_mappings["<Tab>"],
+                "insert mode <Tab> should be move_selection_previous")
+            assert.equals(actions.move_selection_next, i_mappings["<S-Tab>"],
+                "insert mode <S-Tab> should be move_selection_next")
+            assert.equals(actions.move_selection_previous, n_mappings["<Tab>"],
+                "normal mode <Tab> should be move_selection_previous")
+            assert.equals(actions.move_selection_next, n_mappings["<S-Tab>"],
+                "normal mode <S-Tab> should be move_selection_next")
         end)
     end)
 
