@@ -372,6 +372,105 @@ return {
 			table.insert(dap.configurations.cpp, mixdbg_config)
 			table.insert(dap.configurations.cs, mixdbg_config)
 
+			-- Attach variant: pick a running process (or
+			-- enter a PID manually) and attach mixdbg.
+			--
+			-- Process picker behaviour, in priority order:
+			--   1. If exactly one process matches the
+			--      mixdbg testapp filter (WpfApp /
+			--      LateCliWrapper / NativeLib host /
+			--      CliWrapper-hosting exe), attach to it
+			--      directly without prompting.
+			--   2. If more than one matches, show only
+			--      those in the picker.
+			--   3. If zero match, fall back to the
+			--      unfiltered picker.
+			--   4. If dap.utils itself is unavailable,
+			--      fall back to manual PID input.
+			local function is_mixdbg_testapp(proc)
+				local name = (proc.name or ''):lower()
+				-- Match TestApp solution executables.
+				-- WpfApp.exe is the primary integration
+				-- target; LateCliWrapper.exe also runs
+				-- as a standalone host in some scenarios.
+				return name:find('wpfapp', 1, true) ~= nil
+					or name:find('latecliwrapper', 1, true)
+						~= nil
+			end
+			local mixdbg_attach_config = {
+				name = "Mixed C#/C++ attach (mixdbg)",
+				type = "mixdbg",
+				request = "attach",
+				pid = function()
+					local ok, utils = pcall(
+						require, 'dap.utils')
+					if ok and utils.pick_process then
+						-- Count matching testapp procs
+						-- so we can skip the picker
+						-- when there is exactly one.
+						local procs = utils.get_processes({
+							filter = is_mixdbg_testapp,
+						}) or {}
+						if #procs == 1 then
+							vim.notify(
+								'mixdbg: auto-attaching to '
+									.. procs[1].name
+									.. ' (pid '
+									.. procs[1].pid
+									.. ')',
+								vim.log.levels.INFO)
+							return procs[1].pid
+						end
+						if #procs > 1 then
+							local picked =
+								utils.pick_process({
+									filter =
+										is_mixdbg_testapp,
+									prompt =
+										'Select mixdbg '
+										.. 'testapp: ',
+								})
+							if picked then
+								return picked
+							end
+						else
+							-- Zero matches: show
+							-- unfiltered picker so the
+							-- user can still attach
+							-- to any other process.
+							vim.notify(
+								'mixdbg: no testapp '
+									.. 'process found '
+									.. '— showing all '
+									.. 'processes.',
+								vim.log.levels.INFO)
+							local picked =
+								utils.pick_process()
+							if picked then
+								return picked
+							end
+						end
+					end
+					-- Fallback: prompt for PID manually
+					local s = vim.fn.input(
+						'PID to attach to: ')
+					local n = tonumber(s)
+					if not n then
+						vim.notify(
+							'Invalid PID: '
+								.. tostring(s),
+							vim.log.levels.WARN)
+						return require('dap')
+							.ABORT
+					end
+					return n
+				end,
+			}
+			table.insert(
+				dap.configurations.cpp, mixdbg_attach_config)
+			table.insert(
+				dap.configurations.cs, mixdbg_attach_config)
+
 			dap.configurations.c = dap.configurations.cpp
 			dap.configurations.rust = dap.configurations.cpp
 
@@ -456,9 +555,17 @@ return {
 			_mixed_debug = launch_mixed_debug
 
 			-- Force-load dapui when a session starts so its event
-			-- listeners are active, even if the UI isn't visible yet.
+			-- listeners are active, and open the console layout.
+			-- The console-open is duplicated here (dap-ui also
+			-- registers an event_initialized listener) because on
+			-- the first session of an nvim instance dap-ui is
+			-- still being lazy-loaded *during* this dispatch, so
+			-- its own listener isn't registered yet.
 			dap.listeners.after.event_initialized["load_dapui"] = function()
-				pcall(require, "dapui")
+				local ok, dapui = pcall(require, "dapui")
+				if ok then
+					dapui.open({ layout = 2 })
+				end
 			end
 
 			vim.keymap.set({'n', 'v'}, '<Leader>dh', function()

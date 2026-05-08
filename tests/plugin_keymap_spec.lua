@@ -117,9 +117,17 @@ describe("plugin keymaps", function()
     end)
 
     describe("dap-ui", function()
-        it("du (toggle UI)", function()
-            assert.is_true(h.has_keymap("n", "du"), "du not found")
-        end)
+        local keys = {
+            { "<leader>dui", "toggle UI" },
+            { "<leader>dub", "float breakpoints" },
+            { "<leader>duw", "float watches" },
+            { "<leader>dur", "float REPL" },
+        }
+        for _, k in ipairs(keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
+            end)
+        end
     end)
 
     describe("fugitive", function()

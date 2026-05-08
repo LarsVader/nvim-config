@@ -253,6 +253,99 @@ describe("plugin smoke tests", function()
                 "expected App.dll from WinUI layout, got: "
                 .. tostring(result))
         end)
+
+        it("mixdbg adapter is registered as executable", function()
+            local dap = require("dap")
+            local adapter = dap.adapters.mixdbg
+            assert.is_not_nil(adapter, "mixdbg adapter should be registered")
+            assert.equals("executable", adapter.type)
+            assert.equals("string", type(adapter.command),
+                "mixdbg adapter command should be a string")
+            assert.is_true(adapter.command:lower():find('mixdbg') ~= nil,
+                "mixdbg adapter command should reference MixDbg")
+        end)
+
+        local function find_mixdbg_config(configs, request)
+            for _, c in ipairs(configs) do
+                if c.type == "mixdbg" and c.request == request then
+                    return c
+                end
+            end
+            return nil
+        end
+
+        it("mixdbg launch config exists in cs and cpp", function()
+            local dap = require("dap")
+            local cs = find_mixdbg_config(
+                dap.configurations.cs, "launch")
+            local cpp = find_mixdbg_config(
+                dap.configurations.cpp, "launch")
+            assert.is_not_nil(cs,
+                "mixdbg launch config should exist in cs")
+            assert.is_not_nil(cpp,
+                "mixdbg launch config should exist in cpp")
+            assert.equals("Mixed C#/C++ (mixdbg)", cs.name)
+            assert.equals("Mixed C#/C++ (mixdbg)", cpp.name)
+            assert.equals("function", type(cs.program),
+                "launch.program should be a function")
+        end)
+
+        it("mixdbg attach config exists in cs and cpp", function()
+            local dap = require("dap")
+            local cs = find_mixdbg_config(
+                dap.configurations.cs, "attach")
+            local cpp = find_mixdbg_config(
+                dap.configurations.cpp, "attach")
+            assert.is_not_nil(cs,
+                "mixdbg attach config should exist in cs")
+            assert.is_not_nil(cpp,
+                "mixdbg attach config should exist in cpp")
+            assert.equals("Mixed C#/C++ attach (mixdbg)", cs.name)
+            assert.equals("Mixed C#/C++ attach (mixdbg)", cpp.name)
+            assert.equals("function", type(cs.pid),
+                "attach.pid should be a function (PID picker)")
+            -- Same config table is inserted in both cs and cpp
+            assert.equals(cs, cpp,
+                "cs and cpp should share the same attach config table")
+        end)
+
+        it("mixdbg attach config does not declare symbolPath", function()
+            local dap = require("dap")
+            local attach = find_mixdbg_config(
+                dap.configurations.cs, "attach")
+            assert.is_not_nil(attach,
+                "mixdbg attach config should exist")
+            -- symbolPath was removed because the prompt confused
+            -- users. mixdbg's attach handler treats a missing
+            -- symbolPath as null, which is the correct default.
+            assert.is_nil(attach.symbolPath,
+                "attach.symbolPath should not be set")
+        end)
+
+        it("mixdbg attach config resolves cleanly with filtered picker", function()
+            -- Verify the pid function loads and is wired up correctly:
+            -- it must remain a function, and the config table itself
+            -- must resolve to a valid table with the expected shape.
+            -- We don't actually invoke the picker (it requires real
+            -- running processes and a UI prompt).
+            local dap = require("dap")
+            local attach = find_mixdbg_config(
+                dap.configurations.cs, "attach")
+            assert.is_not_nil(attach,
+                "mixdbg attach config should exist")
+            assert.equals("function", type(attach.pid),
+                "attach.pid should be a function (filtered PID picker)")
+            -- Confirm dap.utils is available and exposes both the
+            -- get_processes (for filtered counting) and pick_process
+            -- (for the prompt) APIs the new implementation depends on.
+            local ok, utils = pcall(require, 'dap.utils')
+            assert.is_true(ok,
+                "dap.utils should be requireable: " .. tostring(utils))
+            assert.equals("function", type(utils.get_processes),
+                "dap.utils.get_processes must exist for filtered counting")
+            assert.equals("function", type(utils.pick_process),
+                "dap.utils.pick_process must exist for the picker UI")
+        end)
     end)
 
     describe("neotest", function()
