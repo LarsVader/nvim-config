@@ -42,14 +42,15 @@ return {
 							vim.api.nvim_win_close(cw, false)
 						end
 
-						-- Build a diff buffer showing staged changes
-						-- Use fugitive's worktree so we diff the correct repo
+						-- Build a diff buffer showing the commit's full diff.
+						-- For amends we need parent..staged so the pane reflects the entire
+						-- amended commit, not just the new tweak being staged on top.
 						local worktree = vim.fn.FugitiveWorkTree()
-						local diff_lines = vim.fn.systemlist({ 'git', '-C', worktree, 'diff', '--cached' })
-						if #diff_lines == 0 then
-							-- Fallback: show all changes if nothing staged
-							diff_lines = vim.fn.systemlist({ 'git', '-C', worktree, 'diff', 'HEAD' })
-						end
+						local git_amend = require('lars.git_amend')
+						local commit_lines = vim.api.nvim_buf_get_lines(commit_buf, 0, -1, false)
+						local head_message = vim.fn.systemlist({ 'git', '-C', worktree, 'log', '-1', '--format=%B' })
+						local is_amend = git_amend.is_amending(commit_lines, head_message)
+						local diff_lines = git_amend.get_diff_lines(worktree, is_amend)
 						local diff_buf = vim.api.nvim_create_buf(false, true)
 						vim.api.nvim_buf_set_lines(diff_buf, 0, -1, false, diff_lines)
 						vim.bo[diff_buf].modifiable = false
@@ -170,12 +171,13 @@ return {
 							width = right_w, height = h,
 							col = col + left_w + 2, row = row,
 							style = 'minimal', border = 'rounded',
-							title = ' Staged Changes ', title_pos = 'center',
+							title = is_amend and ' Amend Diff ' or ' Staged Changes ', title_pos = 'center',
 						})
 						local status_buf = diff_buf
 
 						-- Restore fugitive's original bufhidden so :wq triggers commit
 						vim.bo[commit_buf].bufhidden = orig_bufhidden
+
 						-- Focus the commit editor
 						vim.api.nvim_set_current_win(commit_float)
 
