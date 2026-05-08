@@ -461,4 +461,34 @@ describe("plugin smoke tests", function()
             assert.is_true(#autocmds > 0, "BufReadCmd autocmd for axsg-metadata://* should exist")
         end)
     end)
+
+    describe("lazydev + lua_ls", function()
+        it("lazydev loads without error", function()
+            local ok, err = h.force_load_plugin("lazydev.nvim")
+            assert.is_true(ok, "lazydev failed to load: " .. tostring(err))
+        end)
+
+        it("lazydev module is requireable", function()
+            h.force_load_plugin("lazydev.nvim")
+            local ok, mod = pcall(require, "lazydev")
+            assert.is_true(ok, "lazydev module failed to require: " .. tostring(mod))
+        end)
+
+        it("lua_ls is registered via vim.lsp.config", function()
+            local cfg = vim.lsp.config["lua_ls"]
+            assert.is_not_nil(cfg, "lua_ls should be registered in vim.lsp.config")
+        end)
+
+        it("lua_ls config has correct filetypes", function()
+            local cfg = vim.lsp.config["lua_ls"]
+            assert.same({ "lua" }, cfg.filetypes)
+        end)
+
+        it("lua_ls cmd resolves via Mason to lua-language-server", function()
+            local cfg = vim.lsp.config["lua_ls"]
+            assert.equals("table", type(cfg.cmd), "cmd should be a table")
+            assert.truthy(cfg.cmd[1]:match("lua%-language%-server"),
+                "cmd should reference lua-language-server, got: " .. tostring(cfg.cmd[1]))
+        end)
+    end)
 end)

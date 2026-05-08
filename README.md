@@ -308,7 +308,7 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | [mason.nvim](https://github.com/williamboman/mason.nvim) | LSP/DAP/formatter installer |
 | [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) | Completion engine |
 | [LuaSnip](https://github.com/L3MON4D3/LuaSnip) | Snippet engine |
-| [neodev.nvim](https://github.com/folke/neodev.nvim) | Neovim Lua API completion |
+| [lazydev.nvim](https://github.com/folke/lazydev.nvim) | Neovim Lua API completion for lua_ls (replaces neodev.nvim) |
 | [crates.nvim](https://github.com/saecki/crates.nvim) | Cargo.toml dependency completion |
 | [roslyn.nvim](https://github.com/seblyng/roslyn.nvim) | C# Roslyn LSP (replaces OmniSharp) |
 | [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) | Syntax parsing and highlighting |

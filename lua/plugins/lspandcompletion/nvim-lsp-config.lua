@@ -2,7 +2,7 @@ local capabilities = require('cmp_nvim_lsp').default_capabilities()
 return {
 	{
 		'neovim/nvim-lspconfig',
-		dependencies = { 'williamboman/mason.nvim', "folke/neodev.nvim"},
+		dependencies = { 'williamboman/mason.nvim' },
 		event = 'LspAttach',
 		init = function ()
 			vim.keymap.set('n', 'gl', vim.diagnostic.open_float, { desc = "Show line diagnostics" })
