@@ -108,6 +108,8 @@ describe("plugin keymaps", function()
             { "<leader>dlb", "log point" },
             { "<leader>dr",  "REPL" },
             { "<leader>dl",  "run last" },
+            { "<leader>de",  "break on CLR exception type" },
+            { "<leader>dE",  "exception filters" },
         }
         for _, k in ipairs(keys) do
             it(k[1] .. " (" .. k[2] .. ")", function()

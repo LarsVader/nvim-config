@@ -1,4 +1,6 @@
 local _mixed_debug -- set by config(), called by lazy key
+local _exception_picker -- set by config(), called by lazy key
+local _exception_typed -- set by config(), called by lazy key
 
 return {
 	{
@@ -18,6 +20,14 @@ return {
 				require('dap')
 				if _mixed_debug then _mixed_debug() end
 			end, desc = "DAP mixed C#/C++ debug"},
+			{'<Leader>de', function()
+				require('dap')
+				if _exception_typed then _exception_typed() end
+			end, desc = "DAP break on CLR exception type"},
+			{'<Leader>dE', function()
+				require('dap')
+				if _exception_picker then _exception_picker() end
+			end, desc = "DAP exception breakpoint filters"},
 		},
 		config = function()
 
@@ -553,6 +563,194 @@ return {
 			end
 
 			_mixed_debug = launch_mixed_debug
+
+			-- Multi-toggle picker over the live session's
+			-- exceptionBreakpointFilters. nvim-dap's built-in
+			-- prompt is a single vim.fn.input string — this
+			-- replaces it with a vim.ui.select toggle loop.
+			-- Filters and their meaning come from the adapter:
+			-- netcoredbg advertises 'all' and 'user-unhandled',
+			-- codelldb 'cpp_throw' / 'cpp_catch'.
+			local function pick_exception_filters()
+				local sess = dap.session()
+				if not sess then
+					vim.notify(
+						'No active DAP session — '
+							.. 'start the debugger first',
+						vim.log.levels.WARN)
+					return
+				end
+				local cap = sess.capabilities
+					.exceptionBreakpointFilters
+				if not cap or vim.tbl_isempty(cap) then
+					vim.notify(
+						'Adapter does not advertise '
+							.. 'exception breakpoint filters',
+						vim.log.levels.INFO)
+					return
+				end
+				local state = {}
+				for _, f in ipairs(cap) do
+					state[f.filter] = f.default == true
+				end
+				local function build_items()
+					local items = {}
+					for _, f in ipairs(cap) do
+						local mark = state[f.filter]
+							and '[x]' or '[ ]'
+						table.insert(items, {
+							filter = f.filter,
+							label = mark .. ' '
+								.. (f.label or f.filter),
+						})
+					end
+					table.insert(items, {
+						action = 'apply', label = '-- Apply --',
+					})
+					table.insert(items, {
+						action = 'cancel',
+						label = '-- Cancel --',
+					})
+					return items
+				end
+				local function loop()
+					vim.ui.select(build_items(), {
+						prompt = 'Toggle exception filter:',
+						format_item = function(item)
+							return item.label
+						end,
+					}, function(choice)
+						if not choice
+							or choice.action == 'cancel' then
+							return
+						end
+						if choice.action == 'apply' then
+							local enabled = {}
+							for f, on in pairs(state) do
+								if on then
+									table.insert(enabled, f)
+								end
+							end
+							dap.set_exception_breakpoints(
+								enabled)
+							vim.notify(
+								'Exception filters: '
+									.. (#enabled == 0
+										and '(none)'
+										or table.concat(
+											enabled, ', ')),
+								vim.log.levels.INFO)
+							return
+						end
+						state[choice.filter] =
+							not state[choice.filter]
+						vim.schedule(loop)
+					end)
+				end
+				loop()
+			end
+
+			-- VS-style "break when these CLR types are thrown".
+			-- Opens a telescope multi-select picker over the
+			-- curated BCL list plus project-local exception
+			-- types discovered async via ripgrep.
+			--
+			-- Selection is persisted per-cwd (see
+			-- lars.dap_exception_state) and re-applied to every
+			-- new session via the event_initialized listener
+			-- below — so configuring before the session starts
+			-- works exactly like Visual Studio's Exception
+			-- Settings.
+			local exc_state =
+				require('lars.dap_exception_state')
+
+			-- Send the stored types as a single filterOption to
+			-- the session. netcoredbg parses `condition` by
+			-- replacing commas with spaces and splitting on
+			-- whitespace into a set of fully qualified type
+			-- names — at runtime, a thrown exception breaks if
+			-- its type is in that set. Capability-gated.
+			local function apply_exception_filter_options(sess)
+				local types = exc_state.get()
+				if #types == 0 then return end
+				if not sess.capabilities
+					.supportsExceptionFilterOptions then
+					vim.notify(
+						'Adapter does not support '
+							.. 'filterOptions — stored CLR '
+							.. 'type breakpoints not '
+							.. 'applied',
+						vim.log.levels.INFO)
+					return
+				end
+				sess:request(
+					'setExceptionBreakpoints',
+					{
+						filters = {},
+						filterOptions = {
+							{
+								-- netcoredbg's DAP filter IDs
+								-- are 'all' (any thrown) and
+								-- 'user-unhandled'. Internal
+								-- enum names like 'throw' are
+								-- not valid here and trigger
+								-- E_INVALIDARG.
+								filterId = 'all',
+								condition = table.concat(
+									types, ','),
+							},
+						},
+					},
+					function(err)
+						if err then
+							vim.notify(
+								'setExceptionBreakpoints'
+									.. ' failed: '
+									.. vim.inspect(err),
+								vim.log.levels.ERROR)
+						end
+					end)
+			end
+
+			-- Re-apply stored CLR exception types on every
+			-- session start. Runs after nvim-dap's own initial
+			-- setExceptionBreakpoints (sent inside the
+			-- internal event_initialized handler) so ours wins.
+			dap.listeners.after.event_initialized
+				["lars_apply_exc_filter_opts"] =
+				function(session, _)
+					if #exc_state.get() == 0 then return end
+					apply_exception_filter_options(session)
+				end
+
+			local function break_on_clr_exception_type()
+				require('lars.dap_exception_picker').open(
+					exc_state.get(),
+					function(types)
+						exc_state.set(types)
+						if #types == 0 then
+							vim.notify(
+								'Cleared CLR type '
+									.. 'breakpoints',
+								vim.log.levels.INFO)
+						else
+							vim.notify(
+								'CLR type breakpoints '
+									.. 'stored: '
+									.. table.concat(
+										types, ', '),
+								vim.log.levels.INFO)
+						end
+						local sess = dap.session()
+						if sess then
+							apply_exception_filter_options(
+								sess)
+						end
+					end)
+			end
+
+			_exception_picker = pick_exception_filters
+			_exception_typed = break_on_clr_exception_type
 
 			-- Force-load dapui when a session starts so its event
 			-- listeners are active, and open the console layout.
