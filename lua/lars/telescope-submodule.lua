@@ -431,6 +431,20 @@ function M._open_picker(picker_name, git_root, submodules, current_sm, base_opts
                 buf_set("n", "K", function()
                     show_commit_message(prompt_bufnr, cwd)
                 end, "Show full commit message")
+
+                buf_set("n", "d", function()
+                    local action_state = require("telescope.actions.state")
+                    local entry = action_state.get_selected_entry()
+                    if not entry or not entry.value then return end
+                    local sha = tostring(entry.value)
+                    actions.close(prompt_bufnr)
+                    vim.schedule(function()
+                        local prev_cwd = vim.fn.getcwd(-1, -1)
+                        vim.cmd("cd " .. vim.fn.fnameescape(cwd))
+                        vim.cmd("DiffviewOpen " .. sha .. "^!")
+                        vim.cmd("cd " .. vim.fn.fnameescape(prev_cwd))
+                    end)
+                end, "Diffview: show commit changes")
             end
 
             -- Interactive rebase for git_commits only
@@ -1176,6 +1190,7 @@ function M._apply_picker_mappings(picker_name, opts)
     if picker_name == "git_commits" or picker_name == "git_bcommits" then
         return vim.tbl_deep_extend("force", opts, {
             attach_mappings = function(prompt_bufnr)
+                local actions = require("telescope.actions")
                 vim.keymap.set("n", "K", function()
                     show_commit_message(prompt_bufnr)
                 end, { buffer = prompt_bufnr, desc = "Show full commit message" })
@@ -1183,8 +1198,17 @@ function M._apply_picker_mappings(picker_name, opts)
                     buffer = prompt_bufnr, once = true,
                     callback = function() close_commit_msg_float() end,
                 })
+                vim.keymap.set("n", "d", function()
+                    local action_state = require("telescope.actions.state")
+                    local entry = action_state.get_selected_entry()
+                    if not entry or not entry.value then return end
+                    local sha = tostring(entry.value)
+                    actions.close(prompt_bufnr)
+                    vim.schedule(function()
+                        vim.cmd("DiffviewOpen " .. sha .. "^!")
+                    end)
+                end, { buffer = prompt_bufnr, desc = "Diffview: show commit changes" })
                 if picker_name == "git_commits" then
-                    local actions = require("telescope.actions")
                     local function rebase_selected()
                         local action_state = require("telescope.actions.state")
                         local entry = action_state.get_selected_entry()

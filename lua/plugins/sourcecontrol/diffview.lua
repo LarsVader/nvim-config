@@ -1,6 +1,7 @@
 return {
 	{
 		'sindrets/diffview.nvim',
+		cmd = { 'DiffviewOpen', 'DiffviewClose', 'DiffviewFileHistory', 'DiffviewToggleFiles', 'DiffviewFocusFiles', 'DiffviewRefresh' },
 		keys = {
 			{ '<leader>dv', '<cmd>DiffviewOpen<cr>', desc = 'Diffview open (working tree)' },
 			{ '<leader>dh', '<cmd>DiffviewFileHistory %<cr>', desc = 'Diffview file history' },
