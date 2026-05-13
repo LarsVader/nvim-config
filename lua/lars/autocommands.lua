@@ -56,6 +56,30 @@ vim.api.nvim_create_autocmd("FileType", {
 	end,
 })
 
+vim.api.nvim_create_autocmd("FileType", {
+	group = vim.api.nvim_create_augroup("HelpFloat", {}),
+	pattern = "help",
+	callback = function(ev)
+		local win = vim.fn.bufwinid(ev.buf)
+		if win == -1 then return end
+		if vim.api.nvim_win_get_config(win).relative ~= "" then return end
+
+		local width = math.floor(vim.o.columns * 0.85)
+		local height = math.floor(vim.o.lines * 0.85)
+		vim.api.nvim_open_win(ev.buf, true, {
+			relative = "editor",
+			width = width,
+			height = height,
+			row = math.floor((vim.o.lines - height) / 2),
+			col = math.floor((vim.o.columns - width) / 2),
+			border = "rounded",
+			title = " Help ",
+			title_pos = "center",
+		})
+		pcall(vim.api.nvim_win_close, win, false)
+	end,
+})
+
 vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
     group = vim.api.nvim_create_augroup("GitCachePrewarm", {}),
     callback = function()
