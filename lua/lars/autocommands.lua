@@ -66,9 +66,16 @@ vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
     end,
 })
 
-local colorize = function()
-	vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
-	vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
+-- In Windows Terminal, make Normal transparent so the profile's
+-- background image shows through the editor area. WezTerm uses
+-- `text_background_opacity` for the same effect without needing
+-- nvim to be transparent, so we leave it opaque there.
+if vim.env.WT_SESSION then
+	local colorize = function()
+		vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
+		vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
+	end
+	local group = vim.api.nvim_create_augroup("Colors", {})
+	vim.api.nvim_create_autocmd("ColorScheme", { callback = colorize, group = group, })
+	colorize()
 end
-local group = vim.api.nvim_create_augroup("Colors", {})
-vim.api.nvim_create_autocmd("ColorScheme", { callback = colorize, group = group, })

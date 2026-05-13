@@ -175,6 +175,20 @@ describe("plugin keymaps", function()
         end
     end)
 
+    describe("snacks.image", function()
+        it("<M-i> clears image placements (normal mode)", function()
+            assert.is_true(h.has_keymap("n", "<M-i>"), "<M-i> not found in normal mode")
+        end)
+
+        it("<M-i> clears image placements (insert mode)", function()
+            assert.is_true(h.has_keymap("i", "<M-i>"), "<M-i> not found in insert mode")
+        end)
+
+        it("<M-i> clears image placements (terminal mode)", function()
+            assert.is_true(h.has_keymap("t", "<M-i>"), "<M-i> not found in terminal mode")
+        end)
+    end)
+
     describe("sidekick", function()
         local keys = {
             { "<C-,>", "toggle current CLI" },

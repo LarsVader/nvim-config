@@ -343,3 +343,4 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | [nvim-coverage](https://github.com/andythigpen/nvim-coverage) | Code coverage gutter signs |
 | [alpha-nvim](https://github.com/goolord/alpha-nvim) | Dashboard / start screen |
 | [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) | Visual markdown rendering (headings, lists, tables, etc.) |
+| [snacks.nvim](https://github.com/folke/snacks.nvim) | Utility collection by folke. Currently enabled module: `image` (inline image rendering via Kitty graphics protocol). On Windows requires **WezTerm nightly** (`winget install wez.wezterm.nightly`) -- the 20240203 stable release has incomplete protocol support and renders nothing. Also requires ImageMagick (`ImageMagick.ImageMagick` winget package -- NOT `ImageMagick.Q16-HDRI`, which is MSIX-sandboxed and not detectable by `vim.fn.executable`). |

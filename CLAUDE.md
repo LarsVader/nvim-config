@@ -14,7 +14,7 @@ lua/lars/init.lua         → orchestrates core config (options, keymaps, autoco
 lua/lars/plugin-load.lua  → bootstraps Lazy.nvim and calls lazy.setup("plugins")
 lua/lars/options.lua      → editor options (indentation, GUI/Neovide settings)
 lua/lars/keymap.lua       → global keymaps (leader = Space)
-lua/lars/autocommands.lua → autocommands (transparency, etc.)
+lua/lars/autocommands.lua → autocommands (WT-conditional transparency, path resolution, folds, help float, etc.)
 lua/lars/alternate.lua    → alternate file navigation
 lua/plugins/imports.lua   → imports all plugin category subdirectories
 lua/plugins/<category>/   → each plugin has its own .lua file returning a Lazy spec table

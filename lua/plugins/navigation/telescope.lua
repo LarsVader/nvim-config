@@ -25,6 +25,32 @@ return {
 					width = 0.95,
 					preview_width = 0.4,
 				},
+				buffer_previewer_maker = function(filepath, bufnr, opts)
+					-- Clear stuck images from any prior preview before drawing
+					-- the next one (WezTerm's Kitty-graphics fallback path leaks
+					-- placements when buffers are reused across selections).
+					pcall(function()
+						require("snacks.image.placement").clean()
+					end)
+					local expanded = vim.fn.expand(filepath)
+					local ext = expanded:lower():match("%.([^.]+)$") or ""
+					local image_exts = {
+						png = true, jpg = true, jpeg = true,
+						gif = true, webp = true, bmp = true, avif = true,
+					}
+					if image_exts[ext] then
+						vim.schedule(function()
+							if vim.api.nvim_buf_is_valid(bufnr) then
+								vim.api.nvim_buf_set_name(bufnr, expanded)
+								pcall(function()
+									require("snacks.image.buf").attach(bufnr)
+								end)
+							end
+						end)
+					else
+						require("telescope.previewers").buffer_previewer_maker(filepath, bufnr, opts)
+					end
+				end,
 				path_display = function(opts, path)
 					-- Normalize to OS separator so filename_first splitting works on Windows
 					local sep = require("telescope.utils").get_separator()

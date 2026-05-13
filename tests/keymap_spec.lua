@@ -146,6 +146,28 @@ describe("global keymaps", function()
             assert.is_not_nil(km, "<C-c> not found in insert mode")
             assert.is_not_nil(km.desc:lower():find("leave insert"), "desc missing 'leave insert'")
         end)
+
+        it("delete word backwards <S-BS>", function()
+            local km = h.find_keymap("i", "<S-BS>")
+            assert.is_not_nil(km, "<S-BS> not found in insert mode")
+            assert.is_not_nil(km.desc:lower():find("delete word"), "desc missing 'delete word'")
+        end)
+    end)
+
+    describe("command mode", function()
+        it("delete word backwards <S-BS>", function()
+            local km = h.find_keymap("c", "<S-BS>")
+            assert.is_not_nil(km, "<S-BS> not found in command mode")
+            assert.is_not_nil(km.desc:lower():find("delete word"), "desc missing 'delete word'")
+        end)
+    end)
+
+    describe("terminal mode word delete", function()
+        it("delete word backwards <S-BS>", function()
+            local km = h.find_keymap("t", "<S-BS>")
+            assert.is_not_nil(km, "<S-BS> not found in terminal mode")
+            assert.is_not_nil(km.desc:lower():find("delete word"), "desc missing 'delete word'")
+        end)
     end)
 
     -- Spelling keymaps

@@ -10,9 +10,13 @@ function M.find_keymap(mode, lhs)
     local leader = vim.g.mapleader or "\\"
     local normalized = lhs:gsub("<[Ll]eader>", leader)
 
-    -- nvim_get_keymap stores <C-x> as <C-X> (uppercase letter after modifier)
-    normalized = normalized:gsub("(<[CSMcsm]%-)(%a)(>)", function(pre, letter, post)
+    -- nvim_get_keymap stores <C-x>/<S-x> as <C-X>/<S-X> (uppercase letter)
+    -- but <M-x> stays as <M-x> (Alt is case-sensitive)
+    normalized = normalized:gsub("(<[CScs]%-)(%a)(>)", function(pre, letter, post)
         return pre:upper() .. letter:upper() .. post
+    end)
+    normalized = normalized:gsub("(<[Mm]%-)(%a)(>)", function(pre, letter, post)
+        return pre:upper() .. letter .. post
     end)
 
     for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do

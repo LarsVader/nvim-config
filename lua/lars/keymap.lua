@@ -13,6 +13,10 @@ vim.keymap.set({'n', 'v'}, '<leader>p', '"+p', { desc = "Paste from system clipb
 vim.keymap.set({'n', 'v'}, 'p', 'p==', { desc = "Paste and re-indent" })
 
 vim.keymap.set({'i'}, '<C-c>', '<ESC>u', { desc = "Leave insert mode and undo" })
+vim.keymap.set({'i', 'c'}, '<S-BS>', '<C-w>', { desc = "Delete word backwards" })
+vim.keymap.set('t', '<S-BS>', function()
+    vim.api.nvim_chan_send(vim.b.terminal_job_id, '\23')
+end, { desc = "Delete word backwards" })
 
 vim.keymap.set({'n', 'v'}, '<leader>ml', [[<cmd>compiler dotnet<cr><cmd>Make "\Lofwyr"<CR>]], { desc = "dotnet Make Lofwyr" })
 
