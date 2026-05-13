@@ -17,6 +17,9 @@ vim.keymap.set({'i', 'c'}, '<S-BS>', '<C-w>', { desc = "Delete word backwards" }
 vim.keymap.set('t', '<S-BS>', function()
     vim.api.nvim_chan_send(vim.b.terminal_job_id, '\23')
 end, { desc = "Delete word backwards" })
+vim.keymap.set('t', '<S-Tab>', function()
+    vim.api.nvim_chan_send(vim.b.terminal_job_id, '\27[Z')
+end, { desc = "Pass Shift+Tab to terminal (Claude mode switch, etc.)" })
 
 vim.keymap.set({'n', 'v'}, '<leader>ml', [[<cmd>compiler dotnet<cr><cmd>Make "\Lofwyr"<CR>]], { desc = "dotnet Make Lofwyr" })
 

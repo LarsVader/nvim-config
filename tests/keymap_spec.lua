@@ -170,6 +170,14 @@ describe("global keymaps", function()
         end)
     end)
 
+    describe("terminal mode shift-tab pass-through", function()
+        it("<S-Tab> sends CSI Z to terminal", function()
+            local km = h.find_keymap("t", "<S-Tab>")
+            assert.is_not_nil(km, "<S-Tab> not found in terminal mode")
+            assert.is_not_nil(km.desc:lower():find("shift%+tab"), "desc missing 'shift+tab'")
+        end)
+    end)
+
     -- Spelling keymaps
     describe("spelling", function()
         it("]s (next misspelled)", function()
