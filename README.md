@@ -211,10 +211,50 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 
 ## AI / Claude Code
 
-> `lua/plugins/ai/claudecode.lua`
-> Powered by [claude-code.nvim](https://github.com/greggh/claude-code.nvim). Terminal-based Claude Code integration.
-> Launched with `/LOW` priority and CPU affinity `0xE` (logical procs 1-3) via a `cmd /c start` wrapper, so Claude and all its child processes (builds, tests) leave one logical processor free for the rest of the system.
-> File-refresh polling is custom: every 5s via a libuv timer, plus on `BufEnter`/`FocusGained`, but only while the Claude terminal is NOT the currently focused window. This avoids a `:terminal` viewport-follows-cursor interaction that caused scroll-through-transcript jank on long conversations.
+> `lua/plugins/ai/sidekick.lua`
+> Powered by [folke/sidekick.nvim](https://github.com/folke/sidekick.nvim). Embedded terminal sessions for Claude Code and GitHub Copilot CLI side-by-side.
+
+### Interactive CLI sessions
+
+| Keymap | Action |
+|---|---|
+| `<C-,>` | Toggle the most recently used CLI (visible→hide, hidden→show, none→open Claude) |
+| `<M-n>` | New chat — close + reopen the currently focused CLI (preserves history; previous session is reachable via `<leader>ar`) |
+| `<leader>ac` | Toggle Claude CLI |
+| `<leader>ag` | Toggle GitHub Copilot CLI |
+| `<leader>ar` | Resume the last Claude session (`claude --resume`) |
+| `<leader>as` | (visual) Send selection to Claude |
+| `<leader>ak` | Kill all sidekick sessions |
+| `<leader>ap` | Pick a prompt, then pick the CLI + model destination |
+
+The `<leader>ap` picker always asks where to send, even when only one CLI is open. The destination list includes:
+
+- `github (use existing session)` / `claude (use existing session)` — only shown when a session of that family is already running; reuses whichever model variant is most recent.
+- `new github 5.5mini` (gpt-5-mini), `new github haiku`, `new github sonnet`, `new github opus`
+- `new claude haiku`, `new claude sonnet`, `new claude opus`
+
+### Headless one-shot document shortcuts
+
+These send the visual selection (or the enclosing function via treesitter, falling back to the current line) to a hard-coded CLI/model in non-interactive mode and insert the documentation directly above the target range. No sidekick window is opened — same UX as `<leader>cm`.
+
+Naming: `<leader>ad<cli><model>` where `<cli>` is `g`=github / `c`=claude, `<model>` is `f`=free (`gpt-5-mini`, github only) / `h`=haiku / `s`=sonnet / `o`=opus.
+
+| Keymap | CLI / model |
+|---|---|
+| `<leader>adgf` | copilot, `gpt-5-mini` |
+| `<leader>adgh` | copilot, `claude-haiku-4.5` |
+| `<leader>adgs` | copilot, `claude-sonnet-4.5` |
+| `<leader>adgo` | copilot, `claude-opus-4.1` |
+| `<leader>adch` | claude, `haiku` |
+| `<leader>adcs` | claude, `sonnet` |
+| `<leader>adco` | claude, `opus` |
+
+For other prompts or interactive sessions, use `<leader>ap`.
+
+### Commit messages
+
+> Buffer-local `<leader>cm` in `gitcommit` buffers
+> Asks Claude (in non-interactive `claude -p --model sonnet` mode) to draft a Conventional Commits message from the staged diff, then inserts it above the `#` comment lines. Handles amend commits by diffing against `HEAD~`. Avoids the sidekick CLI window because fugitive's commit floats interact badly with vsplits, and `nvim_put`'s bracketed paste makes auto-submit unreliable.
 
 ---
 
@@ -337,7 +377,7 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | [kiwi.nvim](https://github.com/serenevoid/kiwi.nvim) | Wiki / diary |
 | [vim-dispatch](https://github.com/tpope/vim-dispatch) | Async build/run commands |
 | [VimBeGood](https://github.com/ThePrimeagen/vim-be-good) | Vim motion practice (`:VimBeGood`) |
-| [claude-code.nvim](https://github.com/greggh/claude-code.nvim) | Claude Code IDE integration |
+| [sidekick.nvim](https://github.com/folke/sidekick.nvim) | Embedded Claude Code + GitHub Copilot CLI sessions |
 | [neotest](https://github.com/nvim-neotest/neotest) | Test runner and explorer |
 | [neotest-dotnet](https://github.com/Issafalcon/neotest-dotnet) | .NET/xUnit adapter for neotest |
 | [nvim-coverage](https://github.com/andythigpen/nvim-coverage) | Code coverage gutter signs |

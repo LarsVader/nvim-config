@@ -192,11 +192,19 @@ describe("plugin keymaps", function()
     describe("sidekick", function()
         local keys = {
             { "<C-,>", "toggle current CLI" },
+            { "<M-n>", "new chat — restart current CLI" },
             { "<leader>ac", "toggle Claude CLI" },
             { "<leader>ag", "toggle GitHub Copilot CLI" },
             { "<leader>ar", "resume Claude" },
             { "<leader>ak", "kill Claude session" },
-            { "<leader>ap", "prompt" },
+            { "<leader>ap", "prompt → pick CLI/model" },
+            { "<leader>adgf", "headless document via github (free)" },
+            { "<leader>adgh", "headless document via github (haiku)" },
+            { "<leader>adgs", "headless document via github (sonnet)" },
+            { "<leader>adgo", "headless document via github (opus)" },
+            { "<leader>adch", "headless document via claude (haiku)" },
+            { "<leader>adcs", "headless document via claude (sonnet)" },
+            { "<leader>adco", "headless document via claude (opus)" },
         }
         for _, k in ipairs(keys) do
             it(k[1] .. " (" .. k[2] .. ")", function()
@@ -206,6 +214,10 @@ describe("plugin keymaps", function()
 
         it("<C-,> works in terminal mode", function()
             assert.is_true(h.has_keymap("t", "<C-,>"), "<C-,> not found in terminal mode")
+        end)
+
+        it("<M-n> works in terminal mode", function()
+            assert.is_true(h.has_keymap("t", "<M-n>"), "<M-n> not found in terminal mode")
         end)
 
         it("<leader>as (send selection, visual)", function()

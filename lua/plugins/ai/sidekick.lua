@@ -114,6 +114,219 @@ local function send_commit_prompt(bufnr)
     end)
 end
 
+-- Walk treesitter ancestors from cursor looking for a function-ish node so the
+-- headless prompt has something meaningful to chew on when invoked from normal
+-- mode without a selection.
+local function enclosing_function_range()
+    local ok, node = pcall(vim.treesitter.get_node)
+    if not ok or not node then return nil end
+    while node do
+        local t = node:type()
+        if t:match("function") or t:match("method") or t:match("declaration") or t:match("constructor") then
+            local r1, _, r2 = node:range()
+            return r1, r2 + 1
+        end
+        node = node:parent()
+    end
+    return nil
+end
+
+-- Resolve the insertion row + context text for a headless prompt. Priority:
+-- visual selection → enclosing function (treesitter) → current line.
+-- Returns (insert_row_0indexed, context_text).
+local function headless_target()
+    local m = vim.fn.mode()
+    if m == "v" or m == "V" or m == "\22" then
+        local s = vim.fn.getpos("v")
+        local e = vim.fn.getpos(".")
+        if s[2] > e[2] or (s[2] == e[2] and s[3] > e[3]) then
+            s, e = e, s
+        end
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+        local r1, r2 = s[2] - 1, e[2]
+        local lines = vim.api.nvim_buf_get_lines(0, r1, r2, false)
+        return r1, table.concat(lines, "\n")
+    end
+    local r1, r2 = enclosing_function_range()
+    if r1 then
+        local lines = vim.api.nvim_buf_get_lines(0, r1, r2, false)
+        return r1, table.concat(lines, "\n")
+    end
+    local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+    return row, vim.api.nvim_get_current_line()
+end
+
+-- Templates for the headless prompt shortcuts. Phrased to elicit a bare,
+-- insertable response — no code fences, no surrounding prose. The placeholders
+-- are filled with the buffer's filetype and the captured context.
+local HEADLESS_PROMPTS = {
+    document = "Add documentation comments for the following %s code. Return ONLY the documentation block (no code, no fences, no prose) in the conventional comment style for %s.\n\n%s",
+}
+
+-- Headless dispatch for the <leader>a{d,e,f}{g,c}{f,h,s,o} shortcuts. Mirrors
+-- the UX of <leader>cm: no sidekick CLI window, response is inserted directly
+-- above the target range.
+local function run_headless_prompt(action, cli, model)
+    local tmpl = HEADLESS_PROMPTS[action]
+    if not tmpl then
+        vim.notify("Unknown headless action: " .. tostring(action), vim.log.levels.ERROR)
+        return
+    end
+
+    local bufnr = vim.api.nvim_get_current_buf()
+    local insert_row, context_text = headless_target()
+    if not context_text or context_text:match("^%s*$") then
+        vim.notify("No context to send", vim.log.levels.WARN)
+        return
+    end
+
+    local ft = vim.bo[bufnr].filetype
+    if ft == "" then ft = "source" end
+    local prompt = string.format(tmpl, ft, ft, context_text)
+
+    local cmd, opts
+    if cli == "claude" then
+        cmd = { "claude", "-p", "--model", model }
+        opts = { text = true, stdin = prompt }
+    elseif cli == "copilot" then
+        -- --allow-all-tools is required by the copilot CLI for -p/non-interactive
+        -- mode; --silent strips the trailing stats so stdout is just the answer.
+        cmd = { "copilot", "-p", prompt, "--model", model, "--allow-all-tools", "--silent" }
+        opts = { text = true }
+    else
+        vim.notify("Unknown CLI: " .. tostring(cli), vim.log.levels.ERROR)
+        return
+    end
+
+    vim.notify(("[%s] %s/%s working..."):format(action, cli, model), vim.log.levels.INFO)
+    vim.system(cmd, opts, function(result)
+        vim.schedule(function()
+            if not vim.api.nvim_buf_is_valid(bufnr) then return end
+            if result.code ~= 0 then
+                vim.notify(("%s failed: %s"):format(cli, result.stderr or ""), vim.log.levels.ERROR)
+                return
+            end
+            local out = (result.stdout or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            out = out:gsub("^```[%w]*\n", ""):gsub("\n```$", "")
+            if out == "" then
+                vim.notify(cli .. " returned an empty response", vim.log.levels.WARN)
+                return
+            end
+            local new_lines = vim.split(out, "\n", { plain = true })
+            table.insert(new_lines, "")
+            vim.api.nvim_buf_set_lines(bufnr, insert_row, insert_row, false, new_lines)
+            vim.notify(("[%s] inserted %d lines"):format(action, #new_lines - 1), vim.log.levels.INFO)
+        end)
+    end)
+end
+
+-- Find the most-recently-used running sidekick terminal whose tool name belongs
+-- to a family (e.g. all `claude*` or all `copilot*` variants). Used by the
+-- reworked <leader>ap picker so "use existing session" entries reuse whichever
+-- model variant is already open.
+local function most_recent_in_family(prefix)
+    local ok, Terminal = pcall(require, "sidekick.cli.terminal")
+    if not ok then return nil end
+    local recent
+    for _, t in pairs(Terminal.terminals or {}) do
+        local name = t.tool and t.tool.name
+        local matches = name == prefix or (name and name:sub(1, #prefix + 1) == prefix .. "_")
+        if matches and not t.closed and t:is_running() then
+            if not recent or (t.atime or 0) > (recent.atime or 0) then
+                recent = t
+            end
+        end
+    end
+    return recent
+end
+
+-- Close + immediately reopen the sidekick CLI that's currently focused (or, if
+-- the cursor is in a regular buffer, the most-recently-used one). Each fresh
+-- spawn gets a new session UUID, so the previous chat is preserved in the
+-- CLI's history and reachable via --resume — unlike /clear which discards
+-- context in-place.
+local function new_chat_of_active_cli()
+    local ok, Terminal = pcall(require, "sidekick.cli.terminal")
+    if not ok then
+        vim.notify("sidekick terminal module not available", vim.log.levels.ERROR)
+        return
+    end
+    local cli = require("sidekick.cli")
+    local cur_buf = vim.api.nvim_get_current_buf()
+
+    local target
+    for _, t in pairs(Terminal.terminals or {}) do
+        if t.buf == cur_buf and not t.closed then
+            target = t
+            break
+        end
+    end
+    if not target then
+        for _, t in pairs(Terminal.terminals or {}) do
+            if not t.closed and t:is_running() then
+                if not target or (t.atime or 0) > (target.atime or 0) then
+                    target = t
+                end
+            end
+        end
+    end
+
+    local name = target and target.tool and target.tool.name
+    if not name then
+        vim.notify("No active sidekick CLI to restart", vim.log.levels.WARN)
+        return
+    end
+
+    -- cli.close's internals are double-scheduled (State.with wraps both the
+    -- `use` callback and the final `cb` in vim.schedule_wrap), so a single
+    -- vim.schedule fires cli.show before State.detach has actually run — show
+    -- then sees claude still attached and just re-focuses the old terminal,
+    -- which the queued detach immediately tears down. defer_fn past the close
+    -- chain (two schedule hops + the terminal:close call) is the only way to
+    -- guarantee show sees an unattached state and spawns a fresh session.
+    cli.close({ name = name })
+    vim.defer_fn(function()
+        cli.show({ name = name, focus = true })
+    end, 200)
+end
+
+-- Two-step picker for <leader>ap: first pick a prompt (sidekick's built-in
+-- picker, callback form), then always pick a CLI/model destination — even when
+-- only one CLI is open. Existing-session entries route to whichever model
+-- variant of that family is most recent.
+local function pick_prompt_and_send()
+    require("sidekick.cli").prompt({
+        cb = function(msg)
+            if not msg or msg == "" then return end
+
+            local choices = {}
+            local copilot_recent = most_recent_in_family("copilot")
+            if copilot_recent then
+                table.insert(choices, { label = "github (use existing session)", name = copilot_recent.tool.name })
+            end
+            local claude_recent = most_recent_in_family("claude")
+            if claude_recent then
+                table.insert(choices, { label = "claude (use existing session)", name = claude_recent.tool.name })
+            end
+            table.insert(choices, { label = "new github 5.5mini", name = "copilot_free"   })
+            table.insert(choices, { label = "new github haiku",   name = "copilot_haiku"  })
+            table.insert(choices, { label = "new github sonnet",  name = "copilot_sonnet" })
+            table.insert(choices, { label = "new github opus",    name = "copilot_opus"   })
+            table.insert(choices, { label = "new claude haiku",   name = "claude_haiku"   })
+            table.insert(choices, { label = "new claude sonnet", name = "claude_sonnet" })
+            table.insert(choices, { label = "new claude opus",    name = "claude_opus"    })
+
+            vim.ui.select(choices, {
+                prompt = "Send to:",
+                format_item = function(c) return c.label end,
+            }, function(choice)
+                if not choice then return end
+                require("sidekick.cli").send({ msg = msg, name = choice.name, focus = true })
+            end)
+        end,
+    })
+end
+
 return {
     {
         'folke/sidekick.nvim',
@@ -151,6 +364,34 @@ return {
                     claude_resume = {
                         cmd = { "claude", "--resume" },
                         url = "https://github.com/anthropics/claude-code",
+                    },
+                    -- Model-pinned variants so the <leader>ap picker (and the
+                    -- headless <leader>a*{c,g}* shortcuts) can target a specific
+                    -- model. Each variant is a distinct sidekick "tool" because
+                    -- sidekick keys sessions by tool name.
+                    claude_haiku = {
+                        cmd = { "claude", "--model", "haiku" },
+                        url = "https://github.com/anthropics/claude-code",
+                    },
+                    claude_sonnet = {
+                        cmd = { "claude", "--model", "sonnet" },
+                        url = "https://github.com/anthropics/claude-code",
+                    },
+                    claude_opus = {
+                        cmd = { "claude", "--model", "opus" },
+                        url = "https://github.com/anthropics/claude-code",
+                    },
+                    copilot_free = {
+                        cmd = { "copilot", "--banner", "--model", "gpt-5-mini" },
+                    },
+                    copilot_haiku = {
+                        cmd = { "copilot", "--banner", "--model", "claude-haiku-4.5" },
+                    },
+                    copilot_sonnet = {
+                        cmd = { "copilot", "--banner", "--model", "claude-sonnet-4.5" },
+                    },
+                    copilot_opus = {
+                        cmd = { "copilot", "--banner", "--model", "claude-opus-4.1" },
                     },
                 },
             },
@@ -190,6 +431,12 @@ return {
                 desc = 'Toggle current CLI (default Claude)',
             },
             {
+                '<M-n>',
+                function() new_chat_of_active_cli() end,
+                mode = { 'n', 't' },
+                desc = 'New chat — restart current CLI (preserves history)',
+            },
+            {
                 '<leader>ac',
                 function() require('sidekick.cli').toggle({ name = 'claude', focus = true }) end,
                 mode = { 'n' },
@@ -217,11 +464,60 @@ return {
                 function() require('sidekick.cli').close({ all = true }) end,
                 desc = 'Kill Claude session',
             },
+            -- Headless one-shot document prompts: send selection (or enclosing
+            -- function) to a hard-coded CLI/model and insert the doc comments
+            -- above the target range. No sidekick window is opened — same UX
+            -- as <leader>cm. Naming: <leader>ad<cli><model> where
+            --   <cli>   = g (github) / c (claude)
+            --   <model> = f (free=gpt-5-mini, github only) / h (haiku) /
+            --             s (sonnet) / o (opus)
+            {
+                '<leader>adgf',
+                function() run_headless_prompt('document', 'copilot', 'gpt-5-mini') end,
+                mode = { 'n', 'x' },
+                desc = 'AI document — github (gpt-5-mini), headless',
+            },
+            {
+                '<leader>adgh',
+                function() run_headless_prompt('document', 'copilot', 'claude-haiku-4.5') end,
+                mode = { 'n', 'x' },
+                desc = 'AI document — github (haiku), headless',
+            },
+            {
+                '<leader>adgs',
+                function() run_headless_prompt('document', 'copilot', 'claude-sonnet-4.5') end,
+                mode = { 'n', 'x' },
+                desc = 'AI document — github (sonnet), headless',
+            },
+            {
+                '<leader>adgo',
+                function() run_headless_prompt('document', 'copilot', 'claude-opus-4.1') end,
+                mode = { 'n', 'x' },
+                desc = 'AI document — github (opus), headless',
+            },
+            {
+                '<leader>adch',
+                function() run_headless_prompt('document', 'claude', 'haiku') end,
+                mode = { 'n', 'x' },
+                desc = 'AI document — claude (haiku), headless',
+            },
+            {
+                '<leader>adcs',
+                function() run_headless_prompt('document', 'claude', 'sonnet') end,
+                mode = { 'n', 'x' },
+                desc = 'AI document — claude (sonnet), headless',
+            },
+            {
+                '<leader>adco',
+                function() run_headless_prompt('document', 'claude', 'opus') end,
+                mode = { 'n', 'x' },
+                desc = 'AI document — claude (opus), headless',
+            },
             {
                 '<leader>ap',
-                function() require('sidekick.cli').prompt() end,
+                function() pick_prompt_and_send() end,
                 mode = { 'n', 'x' },
-                desc = 'Sidekick prompt',
+                desc = 'Sidekick prompt → pick CLI/model',
             },
         },
     },
