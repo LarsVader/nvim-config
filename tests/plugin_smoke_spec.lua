@@ -555,6 +555,18 @@ describe("plugin smoke tests", function()
         end)
     end)
 
+    describe("smear-cursor", function()
+        it("loads without error", function()
+            local ok, err = h.force_load_plugin("smear-cursor.nvim")
+            assert.is_true(ok, "smear-cursor.nvim failed to load: " .. tostring(err))
+        end)
+
+        it("smear_cursor module is requireable", function()
+            local ok, mod = pcall(require, "smear_cursor")
+            assert.is_true(ok, "smear_cursor module failed to require: " .. tostring(mod))
+        end)
+    end)
+
     describe("snacks.image", function()
         it("loads without error", function()
             local ok, err = h.force_load_plugin("snacks.nvim")
