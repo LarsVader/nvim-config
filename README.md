@@ -222,7 +222,7 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 | `<M-n>` | New chat — close + reopen the currently focused CLI (preserves history; previous session is reachable via `<leader>ar`) |
 | `<leader>ac` | Toggle Claude CLI |
 | `<leader>ag` | Toggle GitHub Copilot CLI |
-| `<leader>ar` | Resume the last Claude session (`claude --resume`) |
+| `<leader>ar` | Resume a Claude session — opens `claude` and sends `/resume` so the resumed chat lives in the regular claude tool (no separate `claude_resume` identity, so `<M-n>` from a resumed chat spawns plain claude rather than re-opening the resume picker) |
 | `<leader>as` | (visual) Send selection to Claude |
 | `<leader>ak` | Kill all sidekick sessions |
 | `<leader>ap` | Pick a prompt, then pick the CLI + model destination |

@@ -357,14 +357,6 @@ return {
                 },
                 tools = {
                     claude = {},
-                    -- Separate tool entry so <leader>ar can spawn `claude --resume`.
-                    -- Sidekick exposes `resume`/`continue` fields on tool configs but
-                    -- has no public API to invoke them, so we model resume as its
-                    -- own session.
-                    claude_resume = {
-                        cmd = { "claude", "--resume" },
-                        url = "https://github.com/anthropics/claude-code",
-                    },
                     -- Model-pinned variants so the <leader>ap picker (and the
                     -- headless <leader>a*{c,g}* shortcuts) can target a specific
                     -- model. Each variant is a distinct sidekick "tool" because
@@ -450,8 +442,22 @@ return {
             },
             {
                 '<leader>ar',
-                function() require('sidekick.cli').toggle({ name = 'claude_resume', focus = true }) end,
-                desc = 'Resume Claude',
+                function()
+                    -- Open the regular `claude` tool and send the /resume slash
+                    -- command so the resumed session lives inside the same
+                    -- terminal/tool identity as a normal claude chat. That way
+                    -- <M-n> from a resumed chat respawns plain `claude` instead
+                    -- of looping back into `claude --resume`'s picker.
+                    -- The defer gives claude's TUI a chance to spawn its welcome
+                    -- screen before we type into it; if claude is already
+                    -- running, the wait is just dead time.
+                    local cli = require('sidekick.cli')
+                    cli.show({ name = 'claude', focus = true })
+                    vim.defer_fn(function()
+                        cli.send({ name = 'claude', msg = '/resume', submit = true })
+                    end, 500)
+                end,
+                desc = 'Resume Claude (/resume in claude session)',
             },
             {
                 '<leader>as',
