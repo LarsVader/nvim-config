@@ -444,26 +444,153 @@ return {
 						vim.cmd('only')
 						local escaped = vim.fn.fnameescape(cfile)
 						vim.cmd('Gedit :2:' .. escaped)
-						local local_buf = vim.api.nvim_get_current_buf()
+						local local_win = vim.api.nvim_get_current_win()
 						vim.cmd('diffthis')
 						vim.cmd('rightbelow vsplit')
 						vim.cmd('Gedit :1:' .. escaped)
-						local base_buf = vim.api.nvim_get_current_buf()
+						local base_win = vim.api.nvim_get_current_win()
 						vim.cmd('diffthis')
 						vim.cmd('rightbelow vsplit')
 						vim.cmd('Gedit :3:' .. escaped)
-						local remote_buf = vim.api.nvim_get_current_buf()
+						local remote_win = vim.api.nvim_get_current_win()
 						vim.cmd('diffthis')
 						vim.cmd('botright split ' .. vim.fn.fnameescape(worktree .. '/' .. cfile))
 						local merged_buf = vim.api.nvim_get_current_buf()
+						local merged_win = vim.api.nvim_get_current_win()
 						vim.cmd('diffthis')
-						-- diffget keymaps on the MERGED buffer
-						vim.keymap.set('n', 'gl', function() vim.cmd('diffget ' .. local_buf) end,
-							{ buffer = merged_buf, desc = 'Get from LOCAL (left)' })
-						vim.keymap.set('n', 'gb', function() vim.cmd('diffget ' .. base_buf) end,
-							{ buffer = merged_buf, desc = 'Get from BASE (center)' })
-						vim.keymap.set('n', 'gr', function() vim.cmd('diffget ' .. remote_buf) end,
-							{ buffer = merged_buf, desc = 'Get from REMOTE (right)' })
+						-- Winbar labels (window-local) so you can't mix up which side is which
+						vim.wo[local_win].winbar  = '%#DiffAdd# LOCAL  (ours :2) %*  <leader>cl = take this side'
+						vim.wo[base_win].winbar   = '%#DiffChange# BASE   (ancestor :1) %*  <leader>cb = take this side'
+						vim.wo[remote_win].winbar = '%#DiffDelete# REMOTE (theirs :3) %*  <leader>cr = take this side'
+						vim.wo[merged_win].winbar = '%#StatusLine# MERGED (worktree) %*  ]x [x = jump conflicts'
+
+						-- Find the conflict region containing `lnum` in the merged buffer.
+						-- Returns {start, mid_base, sep, end_} as 1-indexed line numbers,
+						-- or nil if the cursor isn't inside a conflict region.
+						local function find_conflict_at(lnum)
+							local lines = vim.api.nvim_buf_get_lines(merged_buf, 0, -1, false)
+							local start
+							for i = lnum, 1, -1 do
+								local l = lines[i]
+								if l and l:match('^<<<<<<<') then start = i; break
+								-- A >>>>>>> on the cursor line itself closes the conflict
+								-- the cursor sits inside, so don't bail until we're above it.
+								elseif l and l:match('^>>>>>>>') and i < lnum then return nil end
+							end
+							if not start then return nil end
+							local mid_base, sep, end_
+							for i = start + 1, #lines do
+								local l = lines[i]
+								if l:match('^|||||||') then mid_base = i
+								elseif l:match('^=======') and not sep then sep = i
+								elseif l:match('^>>>>>>>') then end_ = i; break
+								elseif l:match('^<<<<<<<') then return nil end
+							end
+							if not (sep and end_) or lnum > end_ then return nil end
+							return { start = start, mid_base = mid_base, sep = sep, end_ = end_ }
+						end
+
+						-- Replace a single conflict region with the chosen side.
+						-- Returns true on success, false if the side isn't available.
+						local function apply_side(region, side)
+							local lines = vim.api.nvim_buf_get_lines(merged_buf, 0, -1, false)
+							local replacement
+							if side == 'local' then
+								local stop = (region.mid_base or region.sep) - 1
+								replacement = vim.list_slice(lines, region.start + 1, stop)
+							elseif side == 'remote' then
+								replacement = vim.list_slice(lines, region.sep + 1, region.end_ - 1)
+							elseif side == 'base' then
+								if not region.mid_base then return false end
+								replacement = vim.list_slice(lines, region.mid_base + 1, region.sep - 1)
+							elseif side == 'all' then
+								local ours_stop = (region.mid_base or region.sep) - 1
+								local ours = vim.list_slice(lines, region.start + 1, ours_stop)
+								local theirs = vim.list_slice(lines, region.sep + 1, region.end_ - 1)
+								replacement = ours
+								vim.list_extend(replacement, theirs)
+							end
+							vim.api.nvim_buf_set_lines(merged_buf, region.start - 1, region.end_, false, replacement)
+							return true
+						end
+
+						local SIDE_LABEL = { ['local'] = 'LOCAL', remote = 'REMOTE', base = 'BASE', all = 'ALL' }
+
+						local function resolve_at_cursor(side)
+							local lnum = vim.api.nvim_win_get_cursor(0)[1]
+							local region = find_conflict_at(lnum)
+							if not region then
+								vim.notify('No conflict under cursor (use ]x / [x to jump)', vim.log.levels.WARN)
+								return
+							end
+							if not apply_side(region, side) then
+								vim.notify('BASE not in conflict markers (need merge.conflictStyle = diff3)', vim.log.levels.WARN)
+							end
+						end
+
+						local function resolve_all(side)
+							-- Walk from last to first conflict so edits below don't shift the
+							-- cached `starts` line numbers above them (an edit at line N never
+							-- moves lines < N, so earlier indices stay valid).
+							local lines = vim.api.nvim_buf_get_lines(merged_buf, 0, -1, false)
+							local starts = {}
+							for i, l in ipairs(lines) do
+								if l:match('^<<<<<<<') then table.insert(starts, i) end
+							end
+							if #starts == 0 then
+								vim.notify('No conflicts in file', vim.log.levels.INFO)
+								return
+							end
+							local count, skipped = 0, 0
+							for i = #starts, 1, -1 do
+								local region = find_conflict_at(starts[i])
+								if region and apply_side(region, side) then
+									count = count + 1
+								else
+									skipped = skipped + 1
+								end
+							end
+							local msg = string.format('Resolved %d conflict(s) as %s', count, SIDE_LABEL[side])
+							if skipped > 0 then
+								msg = msg .. string.format(' (skipped %d, BASE markers missing)', skipped)
+							end
+							vim.notify(msg, vim.log.levels.INFO)
+						end
+
+						-- Per-conflict (current cursor region only).
+						-- Avoid bare g<letter> here: gr/gb/ga clash with LSP/Comment.nvim prefixes
+						-- and would wait timeoutlen before firing.
+						vim.keymap.set('n', '<leader>cl', function() resolve_at_cursor('local') end,
+							{ buffer = merged_buf, desc = 'Conflict: take LOCAL (this region)' })
+						vim.keymap.set('n', '<leader>cb', function() resolve_at_cursor('base') end,
+							{ buffer = merged_buf, desc = 'Conflict: take BASE (this region)' })
+						vim.keymap.set('n', '<leader>cr', function() resolve_at_cursor('remote') end,
+							{ buffer = merged_buf, desc = 'Conflict: take REMOTE (this region)' })
+						vim.keymap.set('n', '<leader>ca', function() resolve_at_cursor('all') end,
+							{ buffer = merged_buf, desc = 'Conflict: keep ALL (this region)' })
+
+						-- Whole-file (every conflict in the buffer)
+						vim.keymap.set('n', '<leader>cL', function() resolve_all('local') end,
+							{ buffer = merged_buf, desc = 'Conflict: take LOCAL (whole file)' })
+						vim.keymap.set('n', '<leader>cB', function() resolve_all('base') end,
+							{ buffer = merged_buf, desc = 'Conflict: take BASE (whole file)' })
+						vim.keymap.set('n', '<leader>cR', function() resolve_all('remote') end,
+							{ buffer = merged_buf, desc = 'Conflict: take REMOTE (whole file)' })
+						vim.keymap.set('n', '<leader>cA', function() resolve_all('all') end,
+							{ buffer = merged_buf, desc = 'Conflict: keep ALL (whole file)' })
+
+						-- Conflict navigation
+						vim.keymap.set('n', ']x', function()
+							if vim.fn.search('^<<<<<<<', 'W') == 0 then
+								vim.notify('No more conflicts', vim.log.levels.INFO)
+							end
+						end, { buffer = merged_buf, desc = 'Conflict: jump to next' })
+						vim.keymap.set('n', '[x', function()
+							if vim.fn.search('^<<<<<<<', 'bW') == 0 then
+								vim.notify('No previous conflict', vim.log.levels.INFO)
+							end
+						end, { buffer = merged_buf, desc = 'Conflict: jump to previous' })
+
 						setup_diff_keymaps(restore_buf)
 					else
 						-- Regular 2-way diff
@@ -494,6 +621,7 @@ return {
 				end, { buffer = buf })
 			end, desc='Git status' },
 			{ '<leader>gb', ':G blame<CR>', desc='Git blame' },
+			{ '<leader>gc', ':G commit<CR>', desc='Git commit' },
 			{ '<leader>gd', ':G diff<CR>:only<CR>', desc='Git diff' },
 			{ '<leader>gm', ':Gdiffsplit<CR>', desc='Git diffsplit' },
 			-- other commands like log i use telescope instead

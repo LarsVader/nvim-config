@@ -136,6 +136,7 @@ describe("plugin keymaps", function()
         local keys = {
             { "<leader>gs", "status" },
             { "<leader>gb", "blame" },
+            { "<leader>gc", "commit" },
             { "<leader>gd", "diff" },
             { "<leader>gm", "diffsplit" },
         }
