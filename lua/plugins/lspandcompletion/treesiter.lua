@@ -3,7 +3,8 @@ local function has_treesitter_cli()
 end
 
 local wanted_parsers = {
-	'cpp', 'rust', 'javascript', 'vimdoc', 'vim', 'lua', 'c_sharp', 'xml'
+	'cpp', 'rust', 'javascript', 'vimdoc', 'vim', 'lua', 'c_sharp',
+	'xml', 'markdown', 'markdown_inline',
 }
 
 local function winget_install(id, label, on_success)
