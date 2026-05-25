@@ -354,6 +354,24 @@ return {
                 win = {
                     layout = "right",
                     split = { width = 80 },
+                    -- Buffer-local <Esc> in the CLI's terminal buffer that
+                    -- forwards a literal ESC byte directly to the CLI's job
+                    -- channel via nvim_chan_send. This bypasses nvim's
+                    -- :term key-encoding / mapping / timeout layers, which
+                    -- otherwise eat <Esc> before it reaches Claude's stdin
+                    -- (so /memory's menu and Claude's "cancel" don't dismiss
+                    -- on plain <Esc>). Sidekick-scoped: plain :term buffers
+                    -- are unaffected because this is installed buffer-local
+                    -- only in sidekick CLI terminals.
+                    keys = {
+                        esc_send = {
+                            "<Esc>",
+                            function() vim.api.nvim_chan_send(vim.b.terminal_job_id, "\27") end,
+                            mode = "t",
+                            nowait = true,
+                            desc = "Send ESC to CLI (cancel / dismiss menu)",
+                        },
+                    },
                 },
                 tools = {
                     claude = {},

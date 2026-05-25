@@ -92,7 +92,7 @@ vim.keymap.set('n', 'q/', 'q/', { desc = "Open search history window" })
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>', { desc = "Clear search highlight" })
 
 -- Terminal mode: exit and window navigation
-vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
+vim.keymap.set('t', '<C-\\><C-n>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 vim.keymap.set('t', '<C-w>h', '<C-\\><C-n><C-w>h', { desc = 'Terminal: move left' })
 vim.keymap.set('t', '<C-w>l', '<C-\\><C-n><C-w>l', { desc = 'Terminal: move right' })
 vim.keymap.set('t', '<C-w>j', '<C-\\><C-n><C-w>j', { desc = 'Terminal: move down' })

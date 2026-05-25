@@ -225,6 +225,32 @@ describe("plugin keymaps", function()
             assert.is_true(h.has_keymap("x", "<leader>as"), "<leader>as not found in visual mode")
         end)
 
+        it("opts.cli.win.keys.esc_send sends literal ESC byte in terminal mode", function()
+            -- Buffer-local <Esc> mapping installed by sidekick inside CLI
+            -- terminal buffers — bypasses nvim's :term key-encoding so the
+            -- ESC byte reaches the CLI's job stdin (cancels Claude, dismisses
+            -- /memory's menu, etc.). It's wired via sidekick's own
+            -- opts.cli.win.keys table (not lazy.nvim's `keys`), so we assert
+            -- against the plugin spec directly.
+            h.force_load_plugin("sidekick.nvim")
+            local specs = require("lazy").plugins()
+            local entry
+            for _, spec in ipairs(specs) do
+                if spec.name == "sidekick.nvim" then
+                    assert.is_table(spec.opts, "sidekick.nvim opts missing")
+                    assert.is_table(spec.opts.cli, "opts.cli missing")
+                    assert.is_table(spec.opts.cli.win, "opts.cli.win missing")
+                    assert.is_table(spec.opts.cli.win.keys, "opts.cli.win.keys missing")
+                    entry = spec.opts.cli.win.keys.esc_send
+                    break
+                end
+            end
+            assert.is_table(entry, "opts.cli.win.keys.esc_send not found")
+            assert.are.equal("<Esc>", entry[1], "esc_send lhs should be <Esc>")
+            assert.are.equal("t", entry.mode, "esc_send mode should be 't'")
+            assert.is_function(entry[2], "esc_send action should be a function")
+        end)
+
         it("<leader>cm registered buffer-local in gitcommit filetype", function()
             local buf = vim.api.nvim_create_buf(false, true)
             vim.bo[buf].filetype = "gitcommit"

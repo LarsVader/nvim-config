@@ -18,6 +18,8 @@ function M.find_keymap(mode, lhs)
     normalized = normalized:gsub("(<[Mm]%-)(%a)(>)", function(pre, letter, post)
         return pre:upper() .. letter .. post
     end)
+    -- nvim_get_keymap stores <C-\> as <C-Bslash>
+    normalized = normalized:gsub("<[Cc]%-\\>", "<C-Bslash>")
 
     for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
         if km.lhs == normalized then

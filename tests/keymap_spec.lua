@@ -210,9 +210,9 @@ describe("global keymaps", function()
 
     -- Terminal mode keymaps
     describe("terminal mode", function()
-        it("exit terminal <Esc><Esc>", function()
-            local km = h.find_keymap("t", "<Esc><Esc>")
-            assert.is_not_nil(km, "<Esc><Esc> not found in terminal mode")
+        it("exit terminal <C-\\><C-n>", function()
+            local km = h.find_keymap("t", "<C-\\><C-n>")
+            assert.is_not_nil(km, "<C-\\><C-n> not found in terminal mode")
             assert.is_not_nil(km.desc:lower():find("exit terminal"), "desc missing 'exit terminal'")
         end)
 
