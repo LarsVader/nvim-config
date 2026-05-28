@@ -9,6 +9,37 @@ return {
 		config = function(_, opts)
 			require('roslyn').setup(opts)
 
+			-- Drop `<csproj>.user` files so Roslyn can see types defined in
+			-- C++/CLI assemblies referenced via vcxproj ProjectReferences.
+			-- Hooked on FileType (not LSP before_init, which the vim.lsp.Config
+			-- merge path drops). Runs sync so .user files are on disk before
+			-- Roslyn's initialize completes. See lua/lars/cppcli_user_files.lua.
+			vim.api.nvim_create_autocmd("FileType", {
+				group = vim.api.nvim_create_augroup("CppCliUserFiles", { clear = true }),
+				pattern = "cs",
+				callback = function(args)
+					local ok, err = pcall(function()
+						require("lars.cppcli_user_files")
+							.ensure_for_buffer(args.buf)
+					end)
+					if not ok then
+						vim.schedule(function()
+							vim.notify(
+								"cppcli_user_files autocmd error: " .. tostring(err),
+								vim.log.levels.ERROR)
+						end)
+					end
+				end,
+			})
+
+			vim.api.nvim_create_user_command("CppCliUserFilesRefresh", function()
+				local m = require("lars.cppcli_user_files")
+				m.invalidate()
+				m.ensure_for_buffer(0)
+			end, {
+				desc = "Re-scan workspace and regen .user files for C++/CLI projects",
+			})
+
 			-- Override LSP-level settings via vim.lsp.config (merged with
 			-- the defaults from roslyn.nvim's lsp/roslyn.lua)
 			vim.lsp.config('roslyn', {

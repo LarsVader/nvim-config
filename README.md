@@ -105,6 +105,7 @@ Open Neovim -- Lazy.nvim will bootstrap itself and install all plugins automatic
 > Active for: `rust`, `c`, `cpp`, `toml`, `lua`
 > C# uses Roslyn LSP via `roslyn.nvim` (separate plugin, auto-detects `.sln`/`.csproj`).
 > XAML uses `axsg-lsp` (XamlToCSharpGenerator) via `vim.lsp.config` — auto-attaches to `.xaml` files in projects with `.sln`/`.csproj`.
+> A `FileType=cs` autocmd (`lua/lars/cppcli_user_files.lua`) auto-generates `<csproj>.user` files so types from C++/CLI vcxproj `ProjectReference`s resolve. Requires MSBuild on PATH or a VS install. Each call mtime + HintPath checks every csproj and short-circuits once a full pass is clean; use `:CppCliUserFilesRefresh` after adding/removing csprojs or vcxprojs mid-session.
 
 > **Windows Terminal**: `<C-.>` (code actions) requires a custom keybinding to send the correct
 > escape sequence. Add the following to Windows Terminal's `settings.json`
