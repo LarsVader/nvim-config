@@ -30,6 +30,11 @@ local scan_cache = {}
 -- short-circuit without restating every HintPath on disk. Cleared on
 -- generation (see `ensure`) or via `M.invalidate`.
 local workspace_clean = {}
+-- (workspace_root .. "\0" .. asm_name:lower()) -> vcxproj_dir | false
+-- `false` (not nil) means "we looked and there is no matching vcxproj" so
+-- we don't re-query MSBuild for every `gd` press on the same missing
+-- assembly. Cleared by `M.invalidate`.
+local vcxproj_dir_cache = {}
 
 local function file_exists(p)
     if not p or p == "" then return false end
@@ -293,18 +298,21 @@ local function depth_of(entry)
     return d
 end
 
---- Walk the workspace tree. Collects csprojs, detects any vcxproj, and
---- returns every directory that contains a .sln/.slnx so each csproj can
---- later resolve its own nearest-ancestor solution.
+--- Walk the workspace tree. Collects csprojs, vcxprojs (full paths), and
+--- every directory that contains a .sln/.slnx so each csproj can later
+--- resolve its own nearest-ancestor solution.
 ---
 --- sln_dirs is sorted (shallowest first, then alphabetically) so the
 --- nearest-ancestor lookup is deterministic when two solutions sit at the
 --- same depth.
+---
+--- Returns four values; existing callers that destructure the first three
+--- (csprojs, has_vcxproj, sln_dirs) are unaffected.
 ---@param workspace_root string
----@return string[] csprojs, boolean has_vcxproj, string[] sln_dirs
+---@return string[] csprojs, boolean has_vcxproj, string[] sln_dirs, string[] vcxprojs
 function M._scan(workspace_root)
     local csprojs = {}
-    local has_vcx = false
+    local vcxprojs = {}
     local sln_dirs = {}
     for entry, t in vim.fs.dir(workspace_root, { depth = 64, skip = skip_noise }) do
         if t == "file" then
@@ -312,7 +320,7 @@ function M._scan(workspace_root)
             if l:match("%.csproj$") then
                 table.insert(csprojs, vim.fs.joinpath(workspace_root, entry))
             elseif l:match("%.vcxproj$") then
-                has_vcx = true
+                table.insert(vcxprojs, vim.fs.joinpath(workspace_root, entry))
             elseif l:match("%.sln$") or l:match("%.slnx$") then
                 local abs = vim.fs.joinpath(workspace_root, entry)
                 table.insert(sln_dirs, vim.fs.dirname(abs))
@@ -324,17 +332,78 @@ function M._scan(workspace_root)
         if da ~= db then return da < db end
         return a < b
     end)
-    return csprojs, has_vcx, sln_dirs
+    return csprojs, #vcxprojs > 0, sln_dirs, vcxprojs
 end
 
 local function scan_cached(workspace_root)
     local c = scan_cache[workspace_root]
-    if c then return c.csprojs, c.has_vcx, c.sln_dirs end
-    local csprojs, has_vcx, sln_dirs = M._scan(workspace_root)
+    if c then return c.csprojs, c.has_vcx, c.sln_dirs, c.vcxprojs end
+    local csprojs, has_vcx, sln_dirs, vcxprojs = M._scan(workspace_root)
     scan_cache[workspace_root] = {
-        csprojs = csprojs, has_vcx = has_vcx, sln_dirs = sln_dirs,
+        csprojs = csprojs, has_vcx = has_vcx,
+        sln_dirs = sln_dirs, vcxprojs = vcxprojs,
     }
-    return csprojs, has_vcx, sln_dirs
+    return csprojs, has_vcx, sln_dirs, vcxprojs
+end
+
+--- Returns the vcxproj full paths found under `workspace_root`. Reads
+--- (and populates) the same scan_cache used by `ensure`.
+---@param workspace_root string
+---@return string[]
+function M._scan_vcxprojs(workspace_root)
+    local _, _, _, vcxprojs = scan_cached(workspace_root)
+    return vcxprojs or {}
+end
+
+--- Find the vcxproj directory whose primary DLL output basename matches
+--- `asm_name` (case-insensitive, sans `.dll`). Returns nil when no such
+--- vcxproj exists in the workspace.
+---
+--- Used by the `gd`/`gD` redirect to map a Roslyn MetadataAsSource
+--- assembly back to the C++/CLI source tree. Cached per
+--- (workspace_root, asm_name); cleared by `M.invalidate`.
+---@param workspace_root string
+---@param asm_name string
+---@param opts? { configuration?: string, platform?: string, msbuild?: string, solution_dir?: string }
+---@return string?
+function M.find_vcxproj_dir_for_assembly(workspace_root, asm_name, opts)
+    if not workspace_root or workspace_root == "" then return nil end
+    if not asm_name or asm_name == "" then return nil end
+    opts = opts or {}
+    local key = workspace_root .. "\0" .. asm_name:lower()
+    local cached = vcxproj_dir_cache[key]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached
+    end
+
+    local msbuild = M._find_msbuild(opts.msbuild)
+    if not msbuild then
+        vcxproj_dir_cache[key] = false
+        return nil
+    end
+
+    local config = opts.configuration or CONFIGURATION_DEFAULT
+    local platform = opts.platform or PLATFORM_DEFAULT
+    local _, _, sln_dirs = scan_cached(workspace_root)
+    local vcxprojs = M._scan_vcxprojs(workspace_root)
+    local target = asm_name:lower()
+
+    for _, vcx in ipairs(vcxprojs) do
+        local sd = opts.solution_dir or M._nearest_sln_dir(vcx, sln_dirs)
+        local dll = M._query_vcxproj_output(msbuild, vcx, config, platform, sd)
+        if dll then
+            local base = vim.fs.basename(dll):gsub("%.[Dd][Ll][Ll]$", "")
+            if base:lower() == target then
+                local dir = vim.fs.dirname(vcx)
+                vcxproj_dir_cache[key] = dir
+                return dir
+            end
+        end
+    end
+
+    vcxproj_dir_cache[key] = false
+    return nil
 end
 
 --- Pick the deepest .sln directory that is an ancestor of `csproj_path`.
@@ -493,9 +562,17 @@ function M.invalidate(workspace_root)
     if workspace_root then
         scan_cache[workspace_root] = nil
         workspace_clean[workspace_root] = nil
+        -- Drop every vcxproj-dir cache entry keyed under this workspace.
+        local prefix = workspace_root .. "\0"
+        for k in pairs(vcxproj_dir_cache) do
+            if k:sub(1, #prefix) == prefix then
+                vcxproj_dir_cache[k] = nil
+            end
+        end
     else
         scan_cache = {}
         workspace_clean = {}
+        vcxproj_dir_cache = {}
     end
 end
 
@@ -504,6 +581,7 @@ function M._reset_for_test()
     msbuild_cache = nil
     scan_cache = {}
     workspace_clean = {}
+    vcxproj_dir_cache = {}
 end
 
 return M

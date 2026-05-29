@@ -40,6 +40,42 @@ return {
 				desc = "Re-scan workspace and regen .user files for C++/CLI projects",
 			})
 
+			-- When Roslyn attaches to a cs buffer, shadow the global `gd`
+			-- (vim.lsp.buf.definition) with one that intercepts
+			-- MetadataAsSource hits and redirects to the matching C++/CLI
+			-- source. `gd` prefers .cpp definitions; `gD` prefers
+			-- .h/.hpp declarations. See lua/lars/cppcli_goto_source.lua.
+			vim.api.nvim_create_autocmd("LspAttach", {
+				group = vim.api.nvim_create_augroup("CppCliGotoSource", { clear = true }),
+				callback = function(ev)
+					local client = vim.lsp.get_client_by_id(ev.data.client_id)
+					if not client or client.name ~= "roslyn" then return end
+					if vim.bo[ev.buf].filetype ~= "cs" then return end
+
+					vim.keymap.set("n", "gd", function()
+						local sym = vim.fn.expand("<cword>")
+						vim.lsp.buf.definition({
+							on_list = require("lars.cppcli_goto_source")
+								.intercept(sym, "cpp"),
+						})
+					end, {
+						buffer = ev.buf,
+						desc = "lsp: definition (cpp-preferred for C++/CLI)",
+					})
+
+					vim.keymap.set("n", "gD", function()
+						local sym = vim.fn.expand("<cword>")
+						vim.lsp.buf.definition({
+							on_list = require("lars.cppcli_goto_source")
+								.intercept(sym, "header"),
+						})
+					end, {
+						buffer = ev.buf,
+						desc = "lsp: declaration (header-preferred for C++/CLI)",
+					})
+				end,
+			})
+
 			-- Override LSP-level settings via vim.lsp.config (merged with
 			-- the defaults from roslyn.nvim's lsp/roslyn.lua)
 			vim.lsp.config('roslyn', {

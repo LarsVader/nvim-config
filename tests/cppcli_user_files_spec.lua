@@ -725,3 +725,201 @@ describe("cppcli_user_files ensure() failed-query carve-out", function()
         assert.equals(1, query_calls)
     end)
 end)
+
+describe("cppcli_user_files._scan_vcxprojs", function()
+    local root
+
+    before_each(function()
+        m._reset_for_test()
+        root = vim.fn.tempname()
+        vim.fn.mkdir(root, "p")
+    end)
+
+    after_each(function()
+        pcall(vim.fn.delete, root, "rf")
+    end)
+
+    local function touch(rel)
+        local full = root .. "/" .. rel
+        vim.fn.mkdir(vim.fs.dirname(full), "p")
+        local f = io.open(full, "w"); f:write(""); f:close()
+        return full
+    end
+
+    it("returns full paths of every vcxproj in the workspace", function()
+        touch("Foo/Foo.vcxproj")
+        touch("Bar/Bar.vcxproj")
+        touch("OtherProj/Other.csproj")
+        local vcxprojs = m._scan_vcxprojs(root)
+        local norm = {}
+        for _, v in ipairs(vcxprojs) do
+            table.insert(norm, vim.fs.normalize(v))
+        end
+        table.sort(norm)
+        assert.same({
+            vim.fs.normalize(root .. "/Bar/Bar.vcxproj"),
+            vim.fs.normalize(root .. "/Foo/Foo.vcxproj"),
+        }, norm)
+    end)
+
+    it("returns empty when there are no vcxprojs", function()
+        touch("Foo/Foo.csproj")
+        assert.same({}, m._scan_vcxprojs(root))
+    end)
+
+    it("respects the noise-dir skip list", function()
+        touch("bin/inner/Buried.vcxproj")
+        touch(".git/Hidden.vcxproj")
+        touch("Real/Real.vcxproj")
+        local vcxprojs = m._scan_vcxprojs(root)
+        assert.equals(1, #vcxprojs)
+        assert.equals(vim.fs.normalize(root .. "/Real/Real.vcxproj"),
+            vim.fs.normalize(vcxprojs[1]))
+    end)
+end)
+
+describe("cppcli_user_files.find_vcxproj_dir_for_assembly", function()
+    local root
+
+    before_each(function()
+        m._reset_for_test()
+        root = vim.fn.tempname()
+        vim.fn.mkdir(root, "p")
+    end)
+
+    after_each(function()
+        pcall(vim.fn.delete, root, "rf")
+    end)
+
+    local function touch(rel)
+        local full = root .. "/" .. rel
+        vim.fn.mkdir(vim.fs.dirname(full), "p")
+        local f = io.open(full, "w"); f:write(""); f:close()
+        return full
+    end
+
+    it("returns the vcxproj dir whose DLL basename matches the asm name", function()
+        touch("CliWrapper/CliWrapper.vcxproj")
+        touch("Other/Other.vcxproj")
+
+        local orig_msbuild = m._find_msbuild
+        local orig_query = m._query_vcxproj_output
+        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
+        m._query_vcxproj_output = function(_, vcxproj, _, _, _)
+            -- Each vcxproj reports a DLL whose basename matches its own name.
+            local base = vim.fs.basename(vcxproj):gsub("%.vcxproj$", "")
+            return root .. "\\out\\" .. base .. ".dll"
+        end
+
+        local dir = m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+
+        m._find_msbuild = orig_msbuild
+        m._query_vcxproj_output = orig_query
+
+        assert.equals(vim.fs.normalize(root .. "/CliWrapper"),
+            vim.fs.normalize(dir))
+    end)
+
+    it("is case-insensitive on the assembly name match", function()
+        touch("CliWrapper/CliWrapper.vcxproj")
+        local orig_msbuild = m._find_msbuild
+        local orig_query = m._query_vcxproj_output
+        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
+        m._query_vcxproj_output = function() return root .. "\\out\\CliWrapper.dll" end
+
+        local dir = m.find_vcxproj_dir_for_assembly(root, "cliwrapper")
+
+        m._find_msbuild = orig_msbuild
+        m._query_vcxproj_output = orig_query
+
+        assert.equals(vim.fs.normalize(root .. "/CliWrapper"),
+            vim.fs.normalize(dir))
+    end)
+
+    it("returns nil when no vcxproj produces a matching DLL", function()
+        touch("Other/Other.vcxproj")
+        local orig_msbuild = m._find_msbuild
+        local orig_query = m._query_vcxproj_output
+        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
+        m._query_vcxproj_output = function() return root .. "\\out\\Other.dll" end
+
+        local dir = m.find_vcxproj_dir_for_assembly(root, "Nonexistent")
+
+        m._find_msbuild = orig_msbuild
+        m._query_vcxproj_output = orig_query
+
+        assert.is_nil(dir)
+    end)
+
+    it("returns nil when MSBuild is unavailable", function()
+        touch("Foo/Foo.vcxproj")
+        local orig_msbuild = m._find_msbuild
+        m._find_msbuild = function(_) return nil end
+        local dir = m.find_vcxproj_dir_for_assembly(root, "Foo")
+        m._find_msbuild = orig_msbuild
+        assert.is_nil(dir)
+    end)
+
+    it("caches the result so the second call does not re-query MSBuild", function()
+        touch("CliWrapper/CliWrapper.vcxproj")
+        local query_calls = 0
+        local orig_msbuild = m._find_msbuild
+        local orig_query = m._query_vcxproj_output
+        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
+        m._query_vcxproj_output = function(_, vcxproj, _, _, _)
+            query_calls = query_calls + 1
+            local base = vim.fs.basename(vcxproj):gsub("%.vcxproj$", "")
+            return root .. "\\out\\" .. base .. ".dll"
+        end
+
+        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+
+        m._find_msbuild = orig_msbuild
+        m._query_vcxproj_output = orig_query
+
+        assert.equals(1, query_calls)
+    end)
+
+    it("caches the negative result (no match) too", function()
+        touch("Other/Other.vcxproj")
+        local query_calls = 0
+        local orig_msbuild = m._find_msbuild
+        local orig_query = m._query_vcxproj_output
+        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
+        m._query_vcxproj_output = function()
+            query_calls = query_calls + 1
+            return root .. "\\out\\Other.dll"
+        end
+
+        m.find_vcxproj_dir_for_assembly(root, "Nonexistent")
+        m.find_vcxproj_dir_for_assembly(root, "Nonexistent")
+
+        m._find_msbuild = orig_msbuild
+        m._query_vcxproj_output = orig_query
+
+        assert.equals(1, query_calls) -- only the first call iterates vcxprojs
+    end)
+
+    it("invalidate(root) clears the vcxproj_dir cache for that workspace", function()
+        touch("CliWrapper/CliWrapper.vcxproj")
+        local query_calls = 0
+        local orig_msbuild = m._find_msbuild
+        local orig_query = m._query_vcxproj_output
+        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
+        m._query_vcxproj_output = function()
+            query_calls = query_calls + 1
+            return root .. "\\out\\CliWrapper.dll"
+        end
+
+        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+        m.invalidate(root)
+        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+
+        m._find_msbuild = orig_msbuild
+        m._query_vcxproj_output = orig_query
+
+        assert.equals(2, query_calls)
+    end)
+end)
