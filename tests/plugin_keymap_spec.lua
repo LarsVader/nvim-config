@@ -194,6 +194,21 @@ describe("plugin keymaps", function()
         local keys = {
             { "<C-,>", "toggle current CLI" },
             { "<M-n>", "new chat — restart current CLI" },
+            { "<M-,>", "send message to active CLI (prompt)" },
+            { "<M-1>", "send 1 to active CLI" },
+            { "<M-2>", "send 2 to active CLI" },
+            { "<M-3>", "send 3 to active CLI" },
+            { "<M-4>", "send 4 to active CLI" },
+            { "<M-5>", "send 5 to active CLI" },
+            { "<M-6>", "send 6 to active CLI" },
+            { "<M-7>", "send 7 to active CLI" },
+            { "<M-8>", "send 8 to active CLI" },
+            { "<M-9>", "send 9 to active CLI" },
+            { "<M-G>", "scroll active CLI to bottom" },
+            { "<M-j>", "scroll active CLI down one line" },
+            { "<M-k>", "scroll active CLI up one line" },
+            { "<M-d>", "scroll active CLI half page down" },
+            { "<M-u>", "scroll active CLI half page up" },
             { "<leader>ac", "toggle Claude CLI" },
             { "<leader>ag", "toggle GitHub Copilot CLI" },
             { "<leader>ar", "resume Claude" },
@@ -219,6 +234,10 @@ describe("plugin keymaps", function()
 
         it("<M-n> works in terminal mode", function()
             assert.is_true(h.has_keymap("t", "<M-n>"), "<M-n> not found in terminal mode")
+        end)
+
+        it("<M-,> works in terminal mode", function()
+            assert.is_true(h.has_keymap("t", "<M-,>"), "<M-,> not found in terminal mode")
         end)
 
         it("<leader>as (send selection, visual)", function()
