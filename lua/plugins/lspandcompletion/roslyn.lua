@@ -9,29 +9,6 @@ return {
 		config = function(_, opts)
 			require('roslyn').setup(opts)
 
-			-- Drop `<csproj>.user` files so Roslyn can see types defined in
-			-- C++/CLI assemblies referenced via vcxproj ProjectReferences.
-			-- Hooked on FileType (not LSP before_init, which the vim.lsp.Config
-			-- merge path drops). Runs sync so .user files are on disk before
-			-- Roslyn's initialize completes. See lua/lars/cppcli_user_files.lua.
-			vim.api.nvim_create_autocmd("FileType", {
-				group = vim.api.nvim_create_augroup("CppCliUserFiles", { clear = true }),
-				pattern = "cs",
-				callback = function(args)
-					local ok, err = pcall(function()
-						require("lars.cppcli_user_files")
-							.ensure_for_buffer(args.buf)
-					end)
-					if not ok then
-						vim.schedule(function()
-							vim.notify(
-								"cppcli_user_files autocmd error: " .. tostring(err),
-								vim.log.levels.ERROR)
-						end)
-					end
-				end,
-			})
-
 			vim.api.nvim_create_user_command("CppCliUserFilesRefresh", function()
 				local m = require("lars.cppcli_user_files")
 				m.invalidate()
@@ -40,17 +17,23 @@ return {
 				desc = "Re-scan workspace and regen .user files for C++/CLI projects",
 			})
 
-			-- When Roslyn attaches to a cs buffer, shadow the global `gd`
-			-- (vim.lsp.buf.definition) with one that intercepts
-			-- MetadataAsSource hits and redirects to the matching C++/CLI
-			-- source. `gd` prefers .cpp definitions; `gD` prefers
-			-- .h/.hpp declarations. See lua/lars/cppcli_goto_source.lua.
+			-- When Roslyn attaches to a cs buffer:
+			--   1. Kick off .user-file generation asynchronously (does not
+			--      block Roslyn's init — it picks up the .user via its own
+			--      file watcher once we write it). Runs at most once per
+			--      workspace per session; `:CppCliUserFilesRefresh` clears
+			--      the cache to force a re-try after a build.
+			--   2. Shadow `gd` / `gD` so MetadataAsSource hits redirect to
+			--      the matching C++/CLI source. See
+			--      lua/lars/cppcli_goto_source.lua.
 			vim.api.nvim_create_autocmd("LspAttach", {
-				group = vim.api.nvim_create_augroup("CppCliGotoSource", { clear = true }),
+				group = vim.api.nvim_create_augroup("CppCliRoslyn", { clear = true }),
 				callback = function(ev)
 					local client = vim.lsp.get_client_by_id(ev.data.client_id)
 					if not client or client.name ~= "roslyn" then return end
 					if vim.bo[ev.buf].filetype ~= "cs" then return end
+
+					require("lars.cppcli_user_files").ensure_for_buffer(ev.buf)
 
 					vim.keymap.set("n", "gd", function()
 						local sym = vim.fn.expand("<cword>")

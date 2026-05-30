@@ -1,7 +1,6 @@
--- Tests for lars.cppcli_user_files — the pure-logic helpers that drive
--- the per-csproj `.user` generation. The MSBuild call (_query_vcxproj_output)
--- and the filesystem scan are exercised by the manual smoke test against
--- the mixdbg repo, not here.
+-- Tests for lars.cppcli_user_files — the .user generator that lets Roslyn
+-- LSP resolve types from C++/CLI assemblies referenced via vcxproj
+-- ProjectReferences.
 
 local m = require("lars.cppcli_user_files")
 
@@ -65,24 +64,189 @@ describe("cppcli_user_files._parse_csproj", function()
         assert.is_true(r.existing_refs["System.Xml"])
     end)
 
-    it("works with SDK-style xmlns attribute on Project", function()
+    it("ignores commented-out ProjectReferences and References", function()
         local xml = [[
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project>
+  <!-- <ProjectReference Include="..\Stub\Stub.vcxproj" /> -->
+  <!-- <Reference Include="OldName" /> -->
+  <ProjectReference Include="..\Real\Real.vcxproj" />
+  <Reference Include="ActiveName" />
+</Project>
+]]
+        local r = m._parse_csproj(xml)
+        assert.same({ "..\\Real\\Real.vcxproj" }, r.vcxproj_refs)
+        assert.is_nil(r.existing_refs["OldName"])
+        assert.is_true(r.existing_refs["ActiveName"])
+    end)
+
+    it("captures csproj ProjectReferences separately from vcxproj refs", function()
+        local xml = [[
+<Project>
   <ItemGroup>
-    <ProjectReference Include="..\Cpp\Cpp.vcxproj" />
-    <Reference Include="System" />
+    <ProjectReference Include="..\Sibling\Sibling.csproj" />
+    <ProjectReference Include="..\Native\Foo.vcxproj" />
   </ItemGroup>
 </Project>
 ]]
         local r = m._parse_csproj(xml)
-        assert.same({ "..\\Cpp\\Cpp.vcxproj" }, r.vcxproj_refs)
-        assert.is_true(r.existing_refs["System"])
+        assert.same({ "..\\Native\\Foo.vcxproj" }, r.vcxproj_refs)
+        assert.same({ "..\\Sibling\\Sibling.csproj" }, r.csproj_refs)
+    end)
+end)
+
+describe("cppcli_user_files._gather_transitive_vcxprojs", function()
+    local root
+
+    before_each(function()
+        m._reset_for_test()
+        root = vim.fn.tempname()
+        vim.fn.mkdir(root, "p")
     end)
 
-    it("returns empty tables for csproj without any references", function()
-        local r = m._parse_csproj("<Project><PropertyGroup/></Project>")
-        assert.same({}, r.vcxproj_refs)
-        assert.same({}, r.existing_refs)
+    after_each(function()
+        pcall(vim.fn.delete, root, "rf")
+    end)
+
+    local function touch(rel, content)
+        local full = root .. "/" .. rel
+        vim.fn.mkdir(vim.fs.dirname(full), "p")
+        local f = io.open(full, "w"); f:write(content or ""); f:close()
+        return full
+    end
+
+    it("returns direct vcxproj refs of the csproj", function()
+        local cs = touch("A/A.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\X\X.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("X/X.vcxproj")
+        local result = m._gather_transitive_vcxprojs(cs)
+        assert.equals(1, #result)
+        assert.equals(
+            vim.fs.normalize(root .. "/X/X.vcxproj"),
+            vim.fs.normalize(result[1]))
+    end)
+
+    it("follows csproj -> csproj -> vcxproj chains", function()
+        local a = touch("A/A.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\B\B.csproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("B/B.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\X\X.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("X/X.vcxproj")
+        local result = m._gather_transitive_vcxprojs(a)
+        assert.equals(1, #result)
+        assert.is_truthy(vim.fs.normalize(result[1]):match("/X/X%.vcxproj$"))
+    end)
+
+    it("combines direct and transitive vcxproj refs", function()
+        local a = touch("A/A.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Direct\Direct.vcxproj" />
+    <ProjectReference Include="..\B\B.csproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Direct/Direct.vcxproj")
+        touch("B/B.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Transitive\Transitive.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Transitive/Transitive.vcxproj")
+        local result = m._gather_transitive_vcxprojs(a)
+        assert.equals(2, #result)
+    end)
+
+    it("dedupes when the same vcxproj is reached through multiple paths", function()
+        local a = touch("A/A.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\B\B.csproj" />
+    <ProjectReference Include="..\C\C.csproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("B/B.csproj", [[
+<Project><ItemGroup><ProjectReference Include="..\Shared\Shared.vcxproj" /></ItemGroup></Project>
+]])
+        touch("C/C.csproj", [[
+<Project><ItemGroup><ProjectReference Include="..\Shared\Shared.vcxproj" /></ItemGroup></Project>
+]])
+        touch("Shared/Shared.vcxproj")
+        local result = m._gather_transitive_vcxprojs(a)
+        assert.equals(1, #result)
+    end)
+
+    it("does not infinite-loop on a csproj cycle", function()
+        local a = touch("A/A.csproj", [[
+<Project><ItemGroup><ProjectReference Include="..\B\B.csproj" /></ItemGroup></Project>
+]])
+        touch("B/B.csproj", [[
+<Project><ItemGroup><ProjectReference Include="..\A\A.csproj" /></ItemGroup></Project>
+]])
+        local result = m._gather_transitive_vcxprojs(a)
+        assert.same({}, result)
+    end)
+
+    it("returns empty when the csproj has no refs at all", function()
+        local cs = touch("A/A.csproj", "<Project/>")
+        assert.same({}, m._gather_transitive_vcxprojs(cs))
+    end)
+
+    it("silently ignores a <ProjectReference> to a csproj that's missing on disk", function()
+        local a = touch("A/A.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Gone\Gone.csproj" />
+    <ProjectReference Include="..\X\X.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("X/X.vcxproj")
+        -- Gone.csproj never created; should just be skipped.
+        local result = m._gather_transitive_vcxprojs(a)
+        assert.equals(1, #result)
+        assert.is_truthy(vim.fs.normalize(result[1]):match("/X/X%.vcxproj$"))
+    end)
+
+    it("follows a relative csproj ref that resolves outside workspace_root", function()
+        -- The walk doesn't restrict to workspace_root. A relative ref
+        -- that climbs out gets read normally; downstream lookups will
+        -- silently no-op if the resulting vcxproj's DLL isn't indexed.
+        local outside = root .. "/../Outside"
+        vim.fn.mkdir(outside, "p")
+        touch("Inside/A.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Outside\Out.csproj" />
+  </ItemGroup>
+</Project>
+]])
+        local out_cs = outside .. "/Out.csproj"
+        local f = io.open(out_cs, "w")
+        f:write([[<Project><ItemGroup><ProjectReference Include=".\Bar.vcxproj" /></ItemGroup></Project>]])
+        f:close()
+        local fb = io.open(outside .. "/Bar.vcxproj", "w"); fb:write(""); fb:close()
+        local result = m._gather_transitive_vcxprojs(root .. "/Inside/A.csproj")
+        assert.equals(1, #result)
+        assert.is_truthy(vim.fs.normalize(result[1]):match("/Bar%.vcxproj$"))
+        pcall(vim.fn.delete, outside, "rf")
     end)
 end)
 
@@ -103,7 +267,7 @@ describe("cppcli_user_files._compute_relative_path", function()
         assert.equals("out\\Foo.dll", rel)
     end)
 
-    it("walks up multiple levels", function()
+    it("walks up multiple levels to reach a sibling subtree", function()
         local rel = m._compute_relative_path(
             "D:\\repo\\src\\a\\b\\c",
             "D:\\repo\\x64\\Debug\\Foo.dll"
@@ -152,174 +316,6 @@ describe("cppcli_user_files._build_user_xml", function()
     end)
 end)
 
-describe("cppcli_user_files._needs_regen", function()
-    local tmp_csproj
-    local tmp_user
-
-    before_each(function()
-        local dir = vim.fn.tempname()
-        vim.fn.mkdir(dir, "p")
-        tmp_csproj = dir .. "/Foo.csproj"
-        tmp_user = dir .. "/Foo.csproj.user"
-    end)
-
-    after_each(function()
-        pcall(os.remove, tmp_csproj)
-        pcall(os.remove, tmp_user)
-    end)
-
-    it("regens when the .user is missing", function()
-        local f = io.open(tmp_csproj, "w"); f:write("<Project/>"); f:close()
-        assert.is_true(m._needs_regen(tmp_csproj, tmp_user))
-    end)
-
-    it("regens when the csproj is newer than the .user", function()
-        local f = io.open(tmp_user, "w"); f:write("<Project/>"); f:close()
-        -- Sleep enough for filesystem mtime resolution (typically 1s on FAT/older NTFS)
-        vim.uv.sleep(1100)
-        f = io.open(tmp_csproj, "w"); f:write("<Project/>"); f:close()
-        assert.is_true(m._needs_regen(tmp_csproj, tmp_user))
-    end)
-
-    it("skips when the .user is newer than the csproj", function()
-        local f = io.open(tmp_csproj, "w"); f:write("<Project/>"); f:close()
-        vim.uv.sleep(1100)
-        f = io.open(tmp_user, "w"); f:write("<Project/>"); f:close()
-        assert.is_false(m._needs_regen(tmp_csproj, tmp_user))
-    end)
-
-    it("regens when a HintPath in the existing .user points at a missing file", function()
-        local f = io.open(tmp_csproj, "w"); f:write("<Project/>"); f:close()
-        vim.uv.sleep(1100)
-        f = io.open(tmp_user, "w")
-        f:write([[
-<Project>
-  <ItemGroup>
-    <Reference Include="Phantom">
-      <HintPath>does\not\exist.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-</Project>
-]]); f:close()
-        local csproj_dir = vim.fs.dirname(tmp_csproj)
-        assert.is_true(m._needs_regen(tmp_csproj, tmp_user, csproj_dir))
-    end)
-
-    it("skips when all HintPaths in the .user point at existing files", function()
-        local csproj_dir = vim.fs.dirname(tmp_csproj)
-        -- Create a real DLL the HintPath can point at
-        local dll = csproj_dir .. "/real.dll"
-        local f = io.open(dll, "w"); f:write(""); f:close()
-
-        f = io.open(tmp_csproj, "w"); f:write("<Project/>"); f:close()
-        vim.uv.sleep(1100)
-        f = io.open(tmp_user, "w")
-        f:write([[
-<Project>
-  <ItemGroup>
-    <Reference Include="Real">
-      <HintPath>real.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-</Project>
-]]); f:close()
-        assert.is_false(m._needs_regen(tmp_csproj, tmp_user, csproj_dir))
-        pcall(os.remove, dll)
-    end)
-end)
-
-describe("cppcli_user_files._all_hint_paths_exist", function()
-    local dir
-    local user_path
-
-    before_each(function()
-        dir = vim.fn.tempname()
-        vim.fn.mkdir(dir, "p")
-        user_path = dir .. "/Foo.csproj.user"
-    end)
-
-    after_each(function()
-        pcall(os.remove, user_path)
-    end)
-
-    it("returns false when the .user is missing", function()
-        assert.is_false(m._all_hint_paths_exist(user_path, dir))
-    end)
-
-    it("returns false when any relative HintPath is missing", function()
-        local f = io.open(user_path, "w")
-        f:write([[<Project><HintPath>nope.dll</HintPath></Project>]])
-        f:close()
-        assert.is_false(m._all_hint_paths_exist(user_path, dir))
-    end)
-
-    it("returns true when all relative HintPaths exist", function()
-        local f = io.open(dir .. "/a.dll", "w"); f:write(""); f:close()
-        f = io.open(user_path, "w")
-        f:write([[<Project><HintPath>a.dll</HintPath></Project>]])
-        f:close()
-        assert.is_true(m._all_hint_paths_exist(user_path, dir))
-        pcall(os.remove, dir .. "/a.dll")
-    end)
-
-    it("treats a .user with no HintPaths as valid", function()
-        local f = io.open(user_path, "w"); f:write("<Project/>"); f:close()
-        assert.is_true(m._all_hint_paths_exist(user_path, dir))
-    end)
-
-    it("handles absolute HintPaths (skips csproj_dir join)", function()
-        local abs = dir .. "/x.dll"
-        local f = io.open(abs, "w"); f:write(""); f:close()
-        f = io.open(user_path, "w")
-        -- `dir` from `vim.fn.tempname()` is a Windows-shaped absolute path
-        -- (drive-letter root). vim.fs.normalize handles the mixed slashes.
-        f:write("<Project><HintPath>" .. abs .. "</HintPath></Project>")
-        f:close()
-        assert.is_true(m._all_hint_paths_exist(user_path, "C:\\unrelated"))
-        pcall(os.remove, abs)
-    end)
-end)
-
-describe("cppcli_user_files._parse_csproj XML comment handling", function()
-    it("ignores commented-out ProjectReferences", function()
-        local xml = [[
-<Project>
-  <!-- <ProjectReference Include="..\Stub\Stub.vcxproj" /> -->
-  <ProjectReference Include="..\Real\Real.vcxproj" />
-</Project>
-]]
-        local r = m._parse_csproj(xml)
-        assert.same({ "..\\Real\\Real.vcxproj" }, r.vcxproj_refs)
-    end)
-
-    it("ignores commented-out <Reference> entries", function()
-        local xml = [[
-<Project>
-  <!-- <Reference Include="OldName" /> -->
-  <Reference Include="ActiveName" />
-</Project>
-]]
-        local r = m._parse_csproj(xml)
-        assert.is_nil(r.existing_refs["OldName"])
-        assert.is_true(r.existing_refs["ActiveName"])
-    end)
-
-    it("handles multi-line comment blocks", function()
-        local xml = [[
-<Project>
-  <!--
-    <ProjectReference Include="..\Stub\Stub.vcxproj" />
-    <Reference Include="OldName" />
-  -->
-  <ProjectReference Include="..\Real\Real.vcxproj" />
-</Project>
-]]
-        local r = m._parse_csproj(xml)
-        assert.same({ "..\\Real\\Real.vcxproj" }, r.vcxproj_refs)
-        assert.is_nil(r.existing_refs["OldName"])
-    end)
-end)
-
 describe("cppcli_user_files._scan", function()
     local root
 
@@ -340,118 +336,99 @@ describe("cppcli_user_files._scan", function()
         return full
     end
 
-    local function norm_set(t)
-        local out = {}
-        for _, v in ipairs(t) do table.insert(out, vim.fs.normalize(v)) end
-        table.sort(out)
-        return out
-    end
-
-    it("returns an empty sln_dirs list when no .sln present", function()
+    it("collects csprojs, vcxprojs, and DLL index entries", function()
         touch("Foo/Foo.csproj")
         touch("Bar/Bar.vcxproj")
-        local csprojs, has_vcx, sln_dirs = m._scan(root)
+        touch("Bar/x64/Debug/Bar.dll")
+        local csprojs, vcxprojs, dll_index = m._scan(root)
         assert.equals(1, #csprojs)
-        assert.is_true(has_vcx)
-        assert.same({}, sln_dirs)
+        assert.equals(1, #vcxprojs)
+        assert.is_table(dll_index["bar"])
+        assert.equals(1, #dll_index["bar"])
     end)
 
-    it("returns the workspace_root as the sln_dir when .sln is at the root", function()
-        touch("Top.sln")
-        touch("Foo/Foo.csproj")
-        touch("Bar/Bar.vcxproj")
-        local _, _, sln_dirs = m._scan(root)
-        assert.same({ vim.fs.normalize(root) }, norm_set(sln_dirs))
+    it("indexes DLLs by lowercased basename without extension", function()
+        touch("a/MixedCase.DLL")
+        touch("b/Mixedcase.dll")
+        local _, _, dll_index = m._scan(root)
+        -- Both should land in the same `mixedcase` key (case-insensitive).
+        assert.is_table(dll_index["mixedcase"])
+        assert.equals(2, #dll_index["mixedcase"])
     end)
 
-    it("finds .sln nested one level deep (reviewer's #4 regression)", function()
-        touch("src/Sub.sln")
-        touch("src/Foo/Foo.csproj")
-        touch("src/Bar/Bar.vcxproj")
-        local _, _, sln_dirs = m._scan(root)
-        assert.same({ vim.fs.normalize(root .. "/src") }, norm_set(sln_dirs))
-    end)
-
-    it("returns every .sln so the caller can pick per-csproj nearest ancestor", function()
-        touch("deep/inner/Deep.sln")
-        touch("Top.sln")
-        touch("Foo/Foo.csproj")
-        touch("Bar/Bar.vcxproj")
-        local _, _, sln_dirs = m._scan(root)
-        assert.same(
-            norm_set({ root, root .. "/deep/inner" }),
-            norm_set(sln_dirs)
-        )
-    end)
-
-    it("accepts .slnx in place of .sln", function()
-        touch("Top.slnx")
-        touch("Foo/Foo.csproj")
-        touch("Bar/Bar.vcxproj")
-        local _, _, sln_dirs = m._scan(root)
-        assert.same({ vim.fs.normalize(root) }, norm_set(sln_dirs))
-    end)
-
-    it("ignores .sln inside skipped noise dirs (.git, bin, obj)", function()
-        touch(".git/should_not_count.sln")
-        touch("bin/also_not.sln")
-        touch("Foo/Foo.csproj")
-        touch("Bar/Bar.vcxproj")
-        local _, _, sln_dirs = m._scan(root)
-        assert.same({}, sln_dirs)
-    end)
-
-    it("sorts sln_dirs shallowest-first, then alphabetically", function()
-        touch("Top.sln")
-        touch("a/Inner.sln")
-        touch("z/Inner.sln")
-        touch("a/b/Deep.sln")
-        touch("Foo/Foo.vcxproj")
-        local _, _, sln_dirs = m._scan(root)
-        local n = vim.fs.normalize
-        assert.equals(n(root), n(sln_dirs[1]))
-        assert.equals(n(root .. "/a"), n(sln_dirs[2]))
-        assert.equals(n(root .. "/z"), n(sln_dirs[3]))
-        assert.equals(n(root .. "/a/b"), n(sln_dirs[4]))
+    it("respects the noise-dir skip list", function()
+        touch(".git/Hidden.vcxproj")
+        touch("bin/inner/Buried.dll")
+        touch("Real/Real.vcxproj")
+        touch("Real/Real.dll")
+        local _, vcxprojs, dll_index = m._scan(root)
+        assert.equals(1, #vcxprojs)
+        assert.is_table(dll_index["real"])
+        assert.is_nil(dll_index["buried"])
     end)
 end)
 
-describe("cppcli_user_files._nearest_sln_dir", function()
-    it("picks the deepest .sln directory that is an ancestor of the csproj", function()
-        local sln_dirs = {
-            "D:/repo",
-            "D:/repo/src",
+describe("cppcli_user_files._find_dll_for_assembly", function()
+    it("returns nil for an unknown assembly", function()
+        assert.is_nil(m._find_dll_for_assembly({}, "Ghost"))
+    end)
+
+    it("returns the single candidate when only one DLL matches", function()
+        local idx = { cliwrapper = { "D:/repo/out/CliWrapper.dll" } }
+        assert.equals("D:/repo/out/CliWrapper.dll",
+            m._find_dll_for_assembly(idx, "CliWrapper"))
+    end)
+
+    it("prefers a DLL whose path is under hint_dir", function()
+        local idx = {
+            cliwrapper = {
+                "D:/repo/elsewhere/CliWrapper.dll",
+                "D:/repo/CliWrapper/bin/CliWrapper.dll",
+            },
         }
-        local best = m._nearest_sln_dir("D:/repo/src/Foo/Foo.csproj", sln_dirs)
-        assert.equals("D:/repo/src", best)
+        assert.equals("D:/repo/CliWrapper/bin/CliWrapper.dll",
+            m._find_dll_for_assembly(idx, "CliWrapper", "D:/repo/CliWrapper"))
     end)
 
-    it("returns nil when no candidate is an ancestor", function()
-        local sln_dirs = { "D:/somewhere/else" }
-        local best = m._nearest_sln_dir("D:/repo/src/Foo/Foo.csproj", sln_dirs)
-        assert.is_nil(best)
+    it("falls back to newest mtime when no candidate is under hint_dir", function()
+        local tmp = vim.fn.tempname()
+        vim.fn.mkdir(tmp, "p")
+        local older = tmp .. "/Old.dll"
+        local newer = tmp .. "/New.dll"
+        local f = io.open(older, "w"); f:write(""); f:close()
+        vim.uv.sleep(1100)
+        f = io.open(newer, "w"); f:write(""); f:close()
+        local idx = { foo = { older, newer } }
+        local pick = m._find_dll_for_assembly(idx, "Foo")
+        assert.equals(newer, pick)
+        pcall(vim.fn.delete, tmp, "rf")
     end)
 
-    it("returns nil when sln_dirs is empty", function()
-        assert.is_nil(m._nearest_sln_dir("D:/repo/Foo/Foo.csproj", {}))
-        assert.is_nil(m._nearest_sln_dir("D:/repo/Foo/Foo.csproj", nil))
+    it("picks newest among DLLs under hint_dir (within-hint_dir staleness)", function()
+        local tmp = vim.fn.tempname()
+        vim.fn.mkdir(tmp .. "/MyLib/bin/Debug", "p")
+        vim.fn.mkdir(tmp .. "/MyLib/bin/Release", "p")
+        local debug = tmp .. "/MyLib/bin/Debug/MyLib.dll"
+        local release = tmp .. "/MyLib/bin/Release/MyLib.dll"
+        -- Debug first (older), Release second (newer).
+        local f = io.open(debug, "w"); f:write(""); f:close()
+        vim.uv.sleep(1100)
+        f = io.open(release, "w"); f:write(""); f:close()
+        -- Index order intentionally Debug-first to expose first-match bug.
+        local idx = { mylib = { debug, release } }
+        local pick = m._find_dll_for_assembly(idx, "MyLib", tmp .. "/MyLib")
+        assert.equals(release, pick)
+        pcall(vim.fn.delete, tmp, "rf")
     end)
 
-    it("treats the csproj-at-sln-root case as a match", function()
-        local best = m._nearest_sln_dir("D:/repo/Foo.csproj", { "D:/repo" })
-        assert.equals("D:/repo", best)
-    end)
-
-    it("is case-insensitive on the prefix (Windows path semantics)", function()
-        local best = m._nearest_sln_dir(
-            "d:\\Repo\\Foo\\Foo.csproj",
-            { "D:/repo" }
-        )
-        assert.equals("D:/repo", best)
+    it("is case-insensitive on the assembly name", function()
+        local idx = { cliwrapper = { "D:/repo/CliWrapper.dll" } }
+        assert.equals("D:/repo/CliWrapper.dll",
+            m._find_dll_for_assembly(idx, "CLIWRAPPER"))
     end)
 end)
 
-describe("cppcli_user_files workspace_clean dedup + invalidate", function()
+describe("cppcli_user_files.find_vcxproj_dir_for_assembly", function()
     local root
 
     before_each(function()
@@ -464,94 +441,272 @@ describe("cppcli_user_files workspace_clean dedup + invalidate", function()
         pcall(vim.fn.delete, root, "rf")
     end)
 
-    it("ensure() short-circuits after a clean pass (no vcxproj => instant no-op)", function()
-        -- A workspace with no vcxproj should mark itself clean and never
-        -- re-scan. We verify by checking that _scan isn't called twice — we
-        -- swap it for a counting stub after the first call.
-        local first_g, first_s = m.ensure(root)
-        assert.equals(0, first_g)
-        assert.equals(0, first_s)
+    local function touch(rel)
+        local full = root .. "/" .. rel
+        vim.fn.mkdir(vim.fs.dirname(full), "p")
+        local f = io.open(full, "w"); f:write(""); f:close()
+        return full
+    end
 
-        local scan_calls = 0
-        local original = m._scan
-        m._scan = function(...) scan_calls = scan_calls + 1; return original(...) end
-        local g, s = m.ensure(root)
-        m._scan = original
-        assert.equals(0, g)
-        assert.equals(0, s)
-        assert.equals(0, scan_calls)
+    it("returns the dir of the vcxproj whose filename matches the asm name", function()
+        touch("CliWrapper/CliWrapper.vcxproj")
+        touch("Other/Other.vcxproj")
+        local dir = m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+        assert.equals(vim.fs.normalize(root .. "/CliWrapper"),
+            vim.fs.normalize(dir))
     end)
 
-    it("invalidate(root) reopens the work loop", function()
-        m.ensure(root)
+    it("is case-insensitive on the assembly name match", function()
+        touch("CliWrapper/CliWrapper.vcxproj")
+        local dir = m.find_vcxproj_dir_for_assembly(root, "cliwrapper")
+        assert.equals(vim.fs.normalize(root .. "/CliWrapper"),
+            vim.fs.normalize(dir))
+    end)
+
+    it("returns nil when no vcxproj filename matches the asm name", function()
+        touch("Other/Other.vcxproj")
+        assert.is_nil(m.find_vcxproj_dir_for_assembly(root, "Nonexistent"))
+    end)
+
+    it("caches results across calls", function()
+        touch("CliWrapper/CliWrapper.vcxproj")
+        local first = m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+        -- Delete the vcxproj; cached call must still return.
+        pcall(vim.fn.delete, root .. "/CliWrapper", "rf")
+        local second = m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
+        assert.equals(first, second)
+    end)
+
+    it("invalidate(root) drops the vcxproj_dir cache", function()
+        touch("Foo/Foo.vcxproj")
+        local first = m.find_vcxproj_dir_for_assembly(root, "Foo")
+        assert.is_not_nil(first)
         m.invalidate(root)
-        local scan_calls = 0
-        local original = m._scan
-        m._scan = function(...) scan_calls = scan_calls + 1; return original(...) end
-        m.ensure(root)
-        m._scan = original
-        assert.equals(1, scan_calls)
-    end)
-
-    it("invalidate() with no args clears all workspaces", function()
-        local other = vim.fn.tempname()
-        vim.fn.mkdir(other, "p")
-        m.ensure(root)
-        m.ensure(other)
-        m.invalidate()
-        local scan_calls = 0
-        local original = m._scan
-        m._scan = function(...) scan_calls = scan_calls + 1; return original(...) end
-        m.ensure(root)
-        m.ensure(other)
-        m._scan = original
-        assert.equals(2, scan_calls)
-        pcall(vim.fn.delete, other, "rf")
+        touch("Bar/Bar.vcxproj")
+        local second = m.find_vcxproj_dir_for_assembly(root, "Bar")
+        assert.is_not_nil(second)
     end)
 end)
 
-describe("cppcli_user_files._all_hint_paths_exist edge cases", function()
-    local dir
-    local user_path
+describe("cppcli_user_files.ensure", function()
+    local root
 
     before_each(function()
-        dir = vim.fn.tempname()
-        vim.fn.mkdir(dir, "p")
-        user_path = dir .. "/Foo.csproj.user"
+        m._reset_for_test()
+        root = vim.fn.tempname()
+        vim.fn.mkdir(root, "p")
     end)
 
     after_each(function()
-        pcall(vim.fn.delete, dir, "rf")
+        pcall(vim.fn.delete, root, "rf")
     end)
 
-    it("matches <HintPath Condition=...> with attributes (review #1)", function()
-        local f = io.open(user_path, "w")
-        f:write([[<Project>
-  <HintPath Condition="Exists('a.dll')">a.dll</HintPath>
+    local function touch(rel, content)
+        local full = root .. "/" .. rel
+        vim.fn.mkdir(vim.fs.dirname(full), "p")
+        local f = io.open(full, "w"); f:write(content or ""); f:close()
+        return full
+    end
+
+    it("writes a .user for each csproj with a vcxproj ProjectReference whose DLL exists", function()
+        touch("Foo/Foo.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Bar\Bar.vcxproj" />
+  </ItemGroup>
 </Project>
-]]); f:close()
-        -- a.dll missing → should detect the phantom and return false.
-        assert.is_false(m._all_hint_paths_exist(user_path, dir))
+]])
+        touch("Bar/Bar.vcxproj")
+        touch("x64/Debug/Bar.dll")
+        local g, s = m.ensure(root)
+        assert.equals(1, g)
+        assert.equals(0, s)
 
-        local g = io.open(dir .. "/a.dll", "w"); g:write(""); g:close()
-        assert.is_true(m._all_hint_paths_exist(user_path, dir))
-        pcall(os.remove, dir .. "/a.dll")
+        local content = ""
+        local f = io.open(root .. "/Foo/Foo.csproj.user", "r")
+        assert.is_not_nil(f)
+        if f then content = f:read("*a"); f:close() end
+        assert.is_truthy(content:find("<Reference Include=\"Bar\">", 1, true))
+        assert.is_truthy(content:find("Bar.dll", 1, true))
     end)
 
-    it("trims surrounding whitespace from the captured HintPath (review #2)", function()
-        local g = io.open(dir .. "/a.dll", "w"); g:write(""); g:close()
-        local f = io.open(user_path, "w")
-        f:write("<Project><HintPath>  a.dll  </HintPath></Project>")
-        f:close()
-        assert.is_true(m._all_hint_paths_exist(user_path, dir))
-        pcall(os.remove, dir .. "/a.dll")
+    it("does NOT write a .user when no matching DLL is found", function()
+        touch("Foo/Foo.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Bar\Bar.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Bar/Bar.vcxproj")
+        -- No Bar.dll anywhere.
+        local g, s = m.ensure(root)
+        assert.equals(0, g)
+        assert.is_nil(vim.uv.fs_stat(root .. "/Foo/Foo.csproj.user"))
     end)
 
-    it("treats an all-whitespace HintPath as missing", function()
-        local f = io.open(user_path, "w")
-        f:write("<Project><HintPath>   </HintPath></Project>")
+    it("skips vcxprojs the csproj already references via <Reference>", function()
+        touch("Foo/Foo.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Bar\Bar.vcxproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <Reference Include="Bar"><HintPath>..\x64\Debug\Bar.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
+]])
+        touch("Bar/Bar.vcxproj")
+        touch("x64/Debug/Bar.dll")
+        local g, _ = m.ensure(root)
+        -- No new .user — the csproj already handled Bar manually.
+        assert.equals(0, g)
+        assert.is_nil(vim.uv.fs_stat(root .. "/Foo/Foo.csproj.user"))
+    end)
+
+    it("writes transitive vcxprojs reached through intermediate csprojs", function()
+        -- A.csproj -> B.csproj -> Indirect.vcxproj (only chain)
+        touch("A/A.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\B\B.csproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("B/B.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Indirect\Indirect.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Indirect/Indirect.vcxproj")
+        touch("x64/Debug/Indirect.dll")
+        local g, _ = m.ensure(root)
+        -- A.user written with Indirect; B.user written with Indirect too.
+        assert.equals(2, g)
+
+        local f = io.open(root .. "/A/A.csproj.user", "r")
+        assert.is_not_nil(f)
+        local a_content = f:read("*a"); f:close()
+        assert.is_truthy(a_content:find("<Reference Include=\"Indirect\">", 1, true))
+    end)
+
+    local function slurp(p)
+        local f = io.open(p, "r"); if not f then return nil end
+        local c = f:read("*a"); f:close(); return c
+    end
+
+    it("regenerates when a newer DLL appears (Debug -> Release staleness)", function()
+        touch("Foo/Foo.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Bar\Bar.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Bar/Bar.vcxproj")
+        touch("x64/Debug/Bar.dll")
+        m.ensure(root)
+        local first = slurp(root .. "/Foo/Foo.csproj.user")
+        assert.is_truthy(first:find("Debug\\Bar.dll", 1, true))
+
+        -- A newer Release DLL appears (sleep so its mtime is strictly
+        -- greater on 1s-granularity filesystems).
+        vim.uv.sleep(1100)
+        touch("x64/Release/Bar.dll")
+        m._reset_for_test() -- drop scan_cache so the new DLL is indexed
+        local g, _ = m.ensure(root)
+        assert.equals(1, g)
+        local second = slurp(root .. "/Foo/Foo.csproj.user")
+        assert.is_truthy(second:find("Release\\Bar.dll", 1, true))
+        assert.is_nil(second:find("Debug\\Bar.dll", 1, true))
+    end)
+
+    it("finds DLLs in a top-level output dir disjoint from the vcxproj's dir", function()
+        -- vcxproj sits at src/MyLib/; the DLL is at repo/out/Debug/ — a
+        -- sibling tree, not under the vcxproj's parent.
+        touch("src/Consumer/Consumer.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\MyLib\MyLib.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("src/MyLib/MyLib.vcxproj")
+        local out_dll = touch("out/Debug/MyLib.dll")
+
+        local g, _ = m.ensure(root)
+        assert.equals(1, g)
+        local content = slurp(root .. "/src/Consumer/Consumer.csproj.user")
+        assert.is_truthy(content)
+        -- HintPath should resolve to repo/out/Debug/MyLib.dll relative to
+        -- the consumer csproj's dir (src/Consumer/).
+        assert.is_truthy(content:find("MyLib.dll", 1, true))
+        assert.is_truthy(content:find("..\\..\\out\\Debug\\MyLib.dll", 1, true))
+        local _unused = out_dll
+    end)
+
+    it("removes a stale .user when its vcxprojs no longer have DLLs", function()
+        touch("Foo/Foo.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Bar\Bar.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Bar/Bar.vcxproj")
+        touch("x64/Debug/Bar.dll")
+        m.ensure(root)
+        assert.is_not_nil(vim.uv.fs_stat(root .. "/Foo/Foo.csproj.user"))
+
+        pcall(vim.fn.delete, root .. "/x64", "rf")
+        m._reset_for_test()
+        m.ensure(root)
+        assert.is_nil(vim.uv.fs_stat(root .. "/Foo/Foo.csproj.user"))
+    end)
+
+    it("preserves a hand-written .user that lacks the auto-generated marker", function()
+        touch("Foo/Foo.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Bar\Bar.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Bar/Bar.vcxproj")
+        touch("x64/Debug/Bar.dll")
+        local manual = root .. "/Foo/Foo.csproj.user"
+        local f = io.open(manual, "w")
+        f:write([[<Project>
+  <ItemGroup>
+    <Reference Include="Bar"><HintPath>handwritten\path\Bar.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
+]])
         f:close()
-        assert.is_false(m._all_hint_paths_exist(user_path, dir))
+        local before = slurp(manual)
+        m.ensure(root)
+        local after = slurp(manual)
+        assert.equals(before, after)
+    end)
+
+    it("skips a csproj whose .user is current (mtime + HintPath check)", function()
+        touch("Foo/Foo.csproj", [[
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\Bar\Bar.vcxproj" />
+  </ItemGroup>
+</Project>
+]])
+        touch("Bar/Bar.vcxproj")
+        touch("x64/Debug/Bar.dll")
+        m.ensure(root)
+        -- Drop scan cache so the second pass re-walks (mimics a refresh).
+        m._reset_for_test()
+        local g, s = m.ensure(root)
+        assert.equals(0, g)
+        assert.equals(1, s)
     end)
 end)
 
@@ -580,75 +735,6 @@ describe("cppcli_user_files.ensure_for_buffer", function()
         return b
     end
 
-    it("returns nil for an unnamed buffer (no work to do)", function()
-        local b = make_buf(nil)
-        assert.is_nil(m.ensure_for_buffer(b))
-    end)
-
-    it("dispatches to ensure with the .sln-rooted workspace", function()
-        local f = io.open(root .. "/Top.sln", "w"); f:write(""); f:close()
-        vim.fn.mkdir(root .. "/sub", "p")
-        local cs_file = root .. "/sub/Foo.cs"
-        f = io.open(cs_file, "w"); f:write("// x"); f:close()
-        local b = make_buf(cs_file)
-
-        local captured = nil
-        local original = m.ensure
-        m.ensure = function(r, _) captured = r; return 0, 0 end
-        m.ensure_for_buffer(b)
-        m.ensure = original
-
-        assert.equals(vim.fs.normalize(root), vim.fs.normalize(captured))
-    end)
-
-    it("falls back to .csproj-rooted workspace when no .sln present", function()
-        local f = io.open(root .. "/Foo.csproj", "w")
-        f:write("<Project/>"); f:close()
-        vim.fn.mkdir(root .. "/sub", "p")
-        local cs_file = root .. "/sub/Foo.cs"
-        f = io.open(cs_file, "w"); f:write("// x"); f:close()
-        local b = make_buf(cs_file)
-
-        local captured = nil
-        local original = m.ensure
-        m.ensure = function(r, _) captured = r; return 0, 0 end
-        m.ensure_for_buffer(b)
-        m.ensure = original
-
-        assert.equals(vim.fs.normalize(root), vim.fs.normalize(captured))
-    end)
-
-    it("silently no-ops for a buffer whose name has no .sln/.csproj ancestor", function()
-        -- Use a path inside `root` but with no markers anywhere upward.
-        -- (vim.fs.root walks up to drive root; the temp dir has nothing.)
-        local cs_file = root .. "/Loose.cs"
-        local f = io.open(cs_file, "w"); f:write("// x"); f:close()
-        local b = make_buf(cs_file)
-
-        local called = false
-        local original = m.ensure
-        m.ensure = function(_, _) called = true; return 0, 0 end
-        local result = m.ensure_for_buffer(b)
-        m.ensure = original
-
-        assert.is_false(called)
-        assert.is_nil(result)
-    end)
-end)
-
-describe("cppcli_user_files ensure() failed-query carve-out", function()
-    local root
-
-    before_each(function()
-        m._reset_for_test()
-        root = vim.fn.tempname()
-        vim.fn.mkdir(root, "p")
-    end)
-
-    after_each(function()
-        pcall(vim.fn.delete, root, "rf")
-    end)
-
     local function touch(rel, content)
         local full = root .. "/" .. rel
         vim.fn.mkdir(vim.fs.dirname(full), "p")
@@ -656,270 +742,37 @@ describe("cppcli_user_files ensure() failed-query carve-out", function()
         return full
     end
 
-    it("does NOT mark workspace clean when a vcxproj query returns nil", function()
+    it("schedules ensure() asynchronously and runs at most once per session per workspace", function()
+        touch("Top.sln")
         touch("Foo/Foo.csproj", [[
-<Project>
-  <ItemGroup>
-    <ProjectReference Include="..\Bar\Bar.vcxproj" />
-  </ItemGroup>
-</Project>
+<Project><ItemGroup><ProjectReference Include="..\Bar\Bar.vcxproj" /></ItemGroup></Project>
 ]])
         touch("Bar/Bar.vcxproj")
+        touch("x64/Debug/Bar.dll")
+        local cs = root .. "/Foo/Foo.cs"
+        local f = io.open(cs, "w"); f:write("// x"); f:close()
+        local b = make_buf(cs)
 
-        local query_calls = 0
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        local orig_notify = vim.notify
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function()
-            query_calls = query_calls + 1
-            return nil
-        end
-        vim.notify = function(_, _) end -- silence WARN
+        m.ensure_for_buffer(b)
+        m.ensure_for_buffer(b) -- second call should be a no-op (attempted flag set)
 
-        m.ensure(root) -- 1st pass: query stubbed to fail
-        m.ensure(root) -- 2nd pass: must run the loop again (not short-circuit)
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-        vim.notify = orig_notify
-
-        -- The 2nd call's loop must have invoked the query stub again.
-        -- If workspace_clean had been set, the 2nd ensure() would return
-        -- early without entering the loop, leaving query_calls at 1.
-        assert.equals(2, query_calls)
+        -- Let the scheduled work complete.
+        vim.wait(2000, function()
+            return vim.uv.fs_stat(root .. "/Foo/Foo.csproj.user") ~= nil
+        end)
+        assert.is_not_nil(vim.uv.fs_stat(root .. "/Foo/Foo.csproj.user"))
     end)
 
-    it("marks clean once all queries succeed", function()
-        touch("Foo/Foo.csproj", [[
-<Project>
-  <ItemGroup>
-    <ProjectReference Include="..\Bar\Bar.vcxproj" />
-  </ItemGroup>
-</Project>
-]])
-        touch("Bar/Bar.vcxproj")
-        -- Create the DLL the query will point at so HintPath check passes
-        -- after the .user gets written.
-        touch("Bar/x64/Debug/Bar.dll")
-
-        local query_calls = 0
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function()
-            query_calls = query_calls + 1
-            return root .. "\\Bar\\x64\\Debug\\Bar.dll"
-        end
-
-        m.ensure(root) -- 1st pass: writes .user, generated=1, NOT marked clean
-        m.ensure(root) -- 2nd pass: skips (mtime+HintPath both clean), marks clean
-        m.ensure(root) -- 3rd pass: must short-circuit (no query)
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-
-        -- 1st call queries the vcxproj. 2nd call skips via _needs_regen
-        -- BEFORE the query (HintPath check passes since Bar.dll exists).
-        -- 3rd call must short-circuit via workspace_clean.
-        assert.equals(1, query_calls)
-    end)
-end)
-
-describe("cppcli_user_files._scan_vcxprojs", function()
-    local root
-
-    before_each(function()
-        m._reset_for_test()
-        root = vim.fn.tempname()
-        vim.fn.mkdir(root, "p")
+    it("returns silently when the buffer has no associated file", function()
+        local b = make_buf(nil)
+        assert.has_no_error(function() m.ensure_for_buffer(b) end)
     end)
 
-    after_each(function()
-        pcall(vim.fn.delete, root, "rf")
-    end)
-
-    local function touch(rel)
-        local full = root .. "/" .. rel
-        vim.fn.mkdir(vim.fs.dirname(full), "p")
-        local f = io.open(full, "w"); f:write(""); f:close()
-        return full
-    end
-
-    it("returns full paths of every vcxproj in the workspace", function()
-        touch("Foo/Foo.vcxproj")
-        touch("Bar/Bar.vcxproj")
-        touch("OtherProj/Other.csproj")
-        local vcxprojs = m._scan_vcxprojs(root)
-        local norm = {}
-        for _, v in ipairs(vcxprojs) do
-            table.insert(norm, vim.fs.normalize(v))
-        end
-        table.sort(norm)
-        assert.same({
-            vim.fs.normalize(root .. "/Bar/Bar.vcxproj"),
-            vim.fs.normalize(root .. "/Foo/Foo.vcxproj"),
-        }, norm)
-    end)
-
-    it("returns empty when there are no vcxprojs", function()
-        touch("Foo/Foo.csproj")
-        assert.same({}, m._scan_vcxprojs(root))
-    end)
-
-    it("respects the noise-dir skip list", function()
-        touch("bin/inner/Buried.vcxproj")
-        touch(".git/Hidden.vcxproj")
-        touch("Real/Real.vcxproj")
-        local vcxprojs = m._scan_vcxprojs(root)
-        assert.equals(1, #vcxprojs)
-        assert.equals(vim.fs.normalize(root .. "/Real/Real.vcxproj"),
-            vim.fs.normalize(vcxprojs[1]))
-    end)
-end)
-
-describe("cppcli_user_files.find_vcxproj_dir_for_assembly", function()
-    local root
-
-    before_each(function()
-        m._reset_for_test()
-        root = vim.fn.tempname()
-        vim.fn.mkdir(root, "p")
-    end)
-
-    after_each(function()
-        pcall(vim.fn.delete, root, "rf")
-    end)
-
-    local function touch(rel)
-        local full = root .. "/" .. rel
-        vim.fn.mkdir(vim.fs.dirname(full), "p")
-        local f = io.open(full, "w"); f:write(""); f:close()
-        return full
-    end
-
-    it("returns the vcxproj dir whose DLL basename matches the asm name", function()
-        touch("CliWrapper/CliWrapper.vcxproj")
-        touch("Other/Other.vcxproj")
-
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function(_, vcxproj, _, _, _)
-            -- Each vcxproj reports a DLL whose basename matches its own name.
-            local base = vim.fs.basename(vcxproj):gsub("%.vcxproj$", "")
-            return root .. "\\out\\" .. base .. ".dll"
-        end
-
-        local dir = m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-
-        assert.equals(vim.fs.normalize(root .. "/CliWrapper"),
-            vim.fs.normalize(dir))
-    end)
-
-    it("is case-insensitive on the assembly name match", function()
-        touch("CliWrapper/CliWrapper.vcxproj")
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function() return root .. "\\out\\CliWrapper.dll" end
-
-        local dir = m.find_vcxproj_dir_for_assembly(root, "cliwrapper")
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-
-        assert.equals(vim.fs.normalize(root .. "/CliWrapper"),
-            vim.fs.normalize(dir))
-    end)
-
-    it("returns nil when no vcxproj produces a matching DLL", function()
-        touch("Other/Other.vcxproj")
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function() return root .. "\\out\\Other.dll" end
-
-        local dir = m.find_vcxproj_dir_for_assembly(root, "Nonexistent")
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-
-        assert.is_nil(dir)
-    end)
-
-    it("returns nil when MSBuild is unavailable", function()
-        touch("Foo/Foo.vcxproj")
-        local orig_msbuild = m._find_msbuild
-        m._find_msbuild = function(_) return nil end
-        local dir = m.find_vcxproj_dir_for_assembly(root, "Foo")
-        m._find_msbuild = orig_msbuild
-        assert.is_nil(dir)
-    end)
-
-    it("caches the result so the second call does not re-query MSBuild", function()
-        touch("CliWrapper/CliWrapper.vcxproj")
-        local query_calls = 0
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function(_, vcxproj, _, _, _)
-            query_calls = query_calls + 1
-            local base = vim.fs.basename(vcxproj):gsub("%.vcxproj$", "")
-            return root .. "\\out\\" .. base .. ".dll"
-        end
-
-        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
-        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
-        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-
-        assert.equals(1, query_calls)
-    end)
-
-    it("caches the negative result (no match) too", function()
-        touch("Other/Other.vcxproj")
-        local query_calls = 0
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function()
-            query_calls = query_calls + 1
-            return root .. "\\out\\Other.dll"
-        end
-
-        m.find_vcxproj_dir_for_assembly(root, "Nonexistent")
-        m.find_vcxproj_dir_for_assembly(root, "Nonexistent")
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-
-        assert.equals(1, query_calls) -- only the first call iterates vcxprojs
-    end)
-
-    it("invalidate(root) clears the vcxproj_dir cache for that workspace", function()
-        touch("CliWrapper/CliWrapper.vcxproj")
-        local query_calls = 0
-        local orig_msbuild = m._find_msbuild
-        local orig_query = m._query_vcxproj_output
-        m._find_msbuild = function(_) return "C:\\fake\\MSBuild.exe" end
-        m._query_vcxproj_output = function()
-            query_calls = query_calls + 1
-            return root .. "\\out\\CliWrapper.dll"
-        end
-
-        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
-        m.invalidate(root)
-        m.find_vcxproj_dir_for_assembly(root, "CliWrapper")
-
-        m._find_msbuild = orig_msbuild
-        m._query_vcxproj_output = orig_query
-
-        assert.equals(2, query_calls)
+    it("returns silently when no .sln/.csproj ancestor exists", function()
+        -- A loose .cs file with nothing upstream. Behavior: no-op, no error.
+        local cs = root .. "/Loose.cs"
+        local f = io.open(cs, "w"); f:write("// x"); f:close()
+        local b = make_buf(cs)
+        assert.has_no_error(function() m.ensure_for_buffer(b) end)
     end)
 end)
