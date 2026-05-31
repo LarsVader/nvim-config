@@ -193,22 +193,6 @@ describe("plugin keymaps", function()
     describe("sidekick", function()
         local keys = {
             { "<C-,>", "toggle current CLI" },
-            { "<M-n>", "new chat — restart current CLI" },
-            { "<M-,>", "send message to active CLI (prompt)" },
-            { "<M-1>", "send 1 to active CLI" },
-            { "<M-2>", "send 2 to active CLI" },
-            { "<M-3>", "send 3 to active CLI" },
-            { "<M-4>", "send 4 to active CLI" },
-            { "<M-5>", "send 5 to active CLI" },
-            { "<M-6>", "send 6 to active CLI" },
-            { "<M-7>", "send 7 to active CLI" },
-            { "<M-8>", "send 8 to active CLI" },
-            { "<M-9>", "send 9 to active CLI" },
-            { "<M-G>", "scroll active CLI to bottom" },
-            { "<M-j>", "scroll active CLI down one line" },
-            { "<M-k>", "scroll active CLI up one line" },
-            { "<M-d>", "scroll active CLI half page down" },
-            { "<M-u>", "scroll active CLI half page up" },
             { "<leader>ac", "toggle Claude CLI" },
             { "<leader>ag", "toggle GitHub Copilot CLI" },
             { "<leader>ar", "resume Claude" },
@@ -230,14 +214,6 @@ describe("plugin keymaps", function()
 
         it("<C-,> works in terminal mode", function()
             assert.is_true(h.has_keymap("t", "<C-,>"), "<C-,> not found in terminal mode")
-        end)
-
-        it("<M-n> works in terminal mode", function()
-            assert.is_true(h.has_keymap("t", "<M-n>"), "<M-n> not found in terminal mode")
-        end)
-
-        it("<M-,> works in terminal mode", function()
-            assert.is_true(h.has_keymap("t", "<M-,>"), "<M-,> not found in terminal mode")
         end)
 
         it("<leader>as (send selection, visual)", function()
@@ -282,6 +258,44 @@ describe("plugin keymaps", function()
             end
             vim.api.nvim_buf_delete(buf, { force = true })
             assert.is_true(found, "<leader>cm not registered for gitcommit buffer")
+        end)
+    end)
+
+    describe("termcontrol", function()
+        -- Generic terminal-interaction bindings live in the separate
+        -- termcontrol.nvim plugin (lua/plugins/ai/termcontrol.lua). They were
+        -- previously inline in sidekick.lua.
+        h.force_load_plugin("termcontrol.nvim")
+        local keys = {
+            { "<M-n>", "new chat — restart active sidekick CLI" },
+            { "<M-,>", "send message to active terminal (prompt)" },
+            { "<M-1>", "send 1 to active terminal" },
+            { "<M-2>", "send 2 to active terminal" },
+            { "<M-3>", "send 3 to active terminal" },
+            { "<M-4>", "send 4 to active terminal" },
+            { "<M-5>", "send 5 to active terminal" },
+            { "<M-6>", "send 6 to active terminal" },
+            { "<M-7>", "send 7 to active terminal" },
+            { "<M-8>", "send 8 to active terminal" },
+            { "<M-9>", "send 9 to active terminal" },
+            { "<M-G>", "scroll active terminal to bottom" },
+            { "<M-j>", "scroll active terminal down one line" },
+            { "<M-k>", "scroll active terminal up one line" },
+            { "<M-d>", "scroll active terminal half page down" },
+            { "<M-u>", "scroll active terminal half page up" },
+        }
+        for _, k in ipairs(keys) do
+            it(k[1] .. " (" .. k[2] .. ")", function()
+                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
+            end)
+        end
+
+        it("<M-n> works in terminal mode", function()
+            assert.is_true(h.has_keymap("t", "<M-n>"), "<M-n> not found in terminal mode")
+        end)
+
+        it("<M-,> works in terminal mode", function()
+            assert.is_true(h.has_keymap("t", "<M-,>"), "<M-,> not found in terminal mode")
         end)
     end)
 

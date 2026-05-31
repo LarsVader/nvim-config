@@ -240,265 +240,6 @@ local function most_recent_in_family(prefix)
     return recent
 end
 
--- Close + immediately reopen the sidekick CLI that's currently focused (or, if
--- the cursor is in a regular buffer, the most-recently-used one). Each fresh
--- spawn gets a new session UUID, so the previous chat is preserved in the
--- CLI's history and reachable via --resume — unlike /clear which discards
--- context in-place.
-local function new_chat_of_active_cli()
-    local ok, Terminal = pcall(require, "sidekick.cli.terminal")
-    if not ok then
-        vim.notify("sidekick terminal module not available", vim.log.levels.ERROR)
-        return
-    end
-    local cli = require("sidekick.cli")
-    local cur_buf = vim.api.nvim_get_current_buf()
-
-    local target
-    for _, t in pairs(Terminal.terminals or {}) do
-        if t.buf == cur_buf and not t.closed then
-            target = t
-            break
-        end
-    end
-    if not target then
-        for _, t in pairs(Terminal.terminals or {}) do
-            if not t.closed and t:is_running() then
-                if not target or (t.atime or 0) > (target.atime or 0) then
-                    target = t
-                end
-            end
-        end
-    end
-
-    local name = target and target.tool and target.tool.name
-    if not name then
-        vim.notify("No active sidekick CLI to restart", vim.log.levels.WARN)
-        return
-    end
-
-    -- cli.close's internals are double-scheduled (State.with wraps both the
-    -- `use` callback and the final `cb` in vim.schedule_wrap), so a single
-    -- vim.schedule fires cli.show before State.detach has actually run — show
-    -- then sees claude still attached and just re-focuses the old terminal,
-    -- which the queued detach immediately tears down. defer_fn past the close
-    -- chain (two schedule hops + the terminal:close call) is the only way to
-    -- guarantee show sees an unattached state and spawns a fresh session.
-    cli.close({ name = name })
-    vim.defer_fn(function()
-        cli.show({ name = name, focus = true })
-    end, 200)
-end
-
--- Sidekick context tokens the user can interpolate in a prompt. Kept in sync
--- with sidekick.cli.context handlers (position/file/line/this/buffers/
--- diagnostics{,_all}/quickfix/selection/class).
-local SIDEKICK_CONTEXT_TOKENS = {
-    "{position}", "{file}", "{line}", "{this}", "{buffers}",
-    "{diagnostics}", "{diagnostics_all}", "{quickfix}",
-    "{selection}", "{class}",
-}
-
--- Pull the named prompts straight from sidekick.config so any user overrides
--- show up automatically. Skip function-valued entries — they're evaluated
--- against a live ctx and can't be previewed as a flat template. Returns a
--- list of { name, template } pairs.
-local function sidekick_prompt_templates()
-    local ok, cfg = pcall(require, "sidekick.config")
-    if not ok then return {} end
-    local prompts = cfg.cli and cfg.cli.prompts or {}
-    local out = {}
-    for name, p in pairs(prompts) do
-        local template
-        if type(p) == "string" then
-            template = p
-        elseif type(p) == "table" and type(p.msg) == "string" then
-            template = p.msg
-        end
-        if template then
-            table.insert(out, { name = name, template = template })
-        end
-    end
-    table.sort(out, function(a, b) return a.name < b.name end)
-    return out
-end
-
--- Register a one-shot nvim-cmp source for the `@` cmdtype (vim.fn.input
--- prompts) that surfaces named sidekick prompts + SIDEKICK_CONTEXT_TOKENS as
--- completion candidates. The source's is_available gate is wired to
--- `_G.__sidekick_input_active`, so it stays inert for every other
--- vim.ui.input call in the config. Called lazily on first <M-,> press;
--- cmp.setup.cmdline only needs to run once.
-local function ensure_sidekick_cmp_source()
-    if _G.__sidekick_cmp_registered then return end
-    local ok, cmp = pcall(require, "cmp")
-    if not ok then return end
-
-    local source = {}
-    function source:get_trigger_characters() return { "{" } end
-    -- Treat `{...` as the keyword so cmp's fuzzy filter matches against the
-    -- whole token (otherwise `{` is a non-word char and cmp would extract
-    -- only the trailing letters, never narrowing the list). Plain word chars
-    -- still match too, so typing `rev` narrows to the `review` prompt.
-    function source:get_keyword_pattern() return [[\%({\?[a-zA-Z_]*\)]] end
-    function source:is_available() return _G.__sidekick_input_active == true end
-    function source:complete(_, callback)
-        local items, seen = {}, {}
-        for _, p in ipairs(sidekick_prompt_templates()) do
-            -- Show only the template text — the [name] prefix from
-            -- <leader>ap's picker is noise here since picking inserts
-            -- exactly what's displayed.
-            seen[p.template] = true
-            table.insert(items, {
-                label = p.template,
-                insertText = p.template,
-                kind = cmp.lsp.CompletionItemKind.Snippet,
-            })
-        end
-        -- Skip tokens already covered by the "simple context prompts" in
-        -- sidekick's config (selection/file/line/...) — otherwise the menu
-        -- shows each as both a Snippet and a Keyword entry.
-        for _, t in ipairs(SIDEKICK_CONTEXT_TOKENS) do
-            if not seen[t] then
-                table.insert(items, {
-                    label = t,
-                    insertText = t,
-                    kind = cmp.lsp.CompletionItemKind.Keyword,
-                })
-            end
-        end
-        callback({ items = items, isIncomplete = false })
-    end
-    cmp.register_source("sidekick_context", source)
-
-    cmp.setup.cmdline("@", {
-        mapping = cmp.mapping.preset.cmdline(),
-        sources = { { name = "sidekick_context" } },
-    })
-
-    _G.__sidekick_cmp_registered = true
-end
-
--- Find the visible window showing the most-recently-used sidekick CLI, or
--- nil if no sidekick CLI is currently on screen. Used by the <M-G>/<M-j>/
--- <M-k>/<M-d>/<M-u> scroll bindings so the user can browse CLI output
--- without leaving their buffer.
-local function visible_cli_window()
-    local ok, Terminal = pcall(require, "sidekick.cli.terminal")
-    if not ok then return nil end
-    local best_win, best_atime
-    for _, t in pairs(Terminal.terminals or {}) do
-        if not t.closed and t:is_running() then
-            for _, win in ipairs(vim.fn.win_findbuf(t.buf)) do
-                if vim.api.nvim_win_is_valid(win) then
-                    local atime = t.atime or 0
-                    if not best_win or atime > (best_atime or 0) then
-                        best_win, best_atime = win, atime
-                    end
-                end
-            end
-        end
-    end
-    return best_win
-end
-
--- Run a normal-mode key sequence inside the active sidekick CLI window
--- without changing focus. `keys` is a notation string (`G`, `<C-d>`, etc.).
--- When invoked while the editor is in terminal mode (CLI focused), `:normal!`
--- can't switch modes — Neovim throws "Can't re-enter normal mode from
--- terminal mode". We feed `<C-\><C-n>` to drop to normal mode first, then
--- defer the scroll + a `startinsert` so the user lands back in terminal mode.
-local function scroll_active_cli(keys)
-    local win = visible_cli_window()
-    if not win then
-        vim.notify("No visible sidekick CLI window", vim.log.levels.WARN)
-        return
-    end
-    local termcodes = vim.api.nvim_replace_termcodes(keys, true, false, true)
-    local function do_scroll()
-        vim.api.nvim_win_call(win, function()
-            vim.cmd("normal! " .. termcodes)
-        end)
-    end
-    if vim.fn.mode() == "t" then
-        -- Drop to normal mode first; can't run `:normal!` from terminal mode.
-        -- We deliberately do NOT startinsert again — re-entering terminal
-        -- mode snaps the view back to the PTY cursor, undoing the scroll.
-        -- User can press `i` to resume typing once they're done reading.
-        vim.api.nvim_feedkeys(
-            vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true),
-            "n", false
-        )
-        vim.schedule(do_scroll)
-    else
-        do_scroll()
-    end
-end
-
--- Find the most-recently-used running sidekick CLI terminal, or nil if none.
--- Shared by send_message_to_active_cli and send_keys_to_active_cli.
-local function active_cli_terminal()
-    local ok, Terminal = pcall(require, "sidekick.cli.terminal")
-    if not ok then return nil end
-    local recent
-    for _, t in pairs(Terminal.terminals or {}) do
-        if not t.closed and t:is_running() then
-            if not recent or (t.atime or 0) > (recent.atime or 0) then
-                recent = t
-            end
-        end
-    end
-    return recent
-end
-
--- Send a literal byte sequence to the active sidekick CLI's terminal job
--- without changing window focus. Used by the <M-1>..<M-9> bindings so we can
--- answer Claude's number-driven prompts (permissions, plan mode, /memory,
--- etc.) from any buffer.
-local function send_keys_to_active_cli(keys)
-    local t = active_cli_terminal()
-    if not t then
-        vim.notify("No active sidekick CLI", vim.log.levels.WARN)
-        return
-    end
-    local ok, job_id = pcall(vim.api.nvim_buf_get_var, t.buf, "terminal_job_id")
-    if not ok or not job_id then
-        vim.notify("CLI terminal has no job channel", vim.log.levels.WARN)
-        return
-    end
-    vim.api.nvim_chan_send(job_id, keys)
-end
-
--- vim.ui.input prompt that fires the message at the most-recently-used CLI
--- (Claude if nothing is running) and returns control to the original buffer.
--- Modelled on <C-,>'s "current CLI" resolver so muscle memory carries over.
-local function send_message_to_active_cli()
-    local recent = active_cli_terminal()
-    local name = (recent and recent.tool and recent.tool.name) or "claude"
-    ensure_sidekick_cmp_source()
-    _G.__sidekick_input_active = true
-    -- Route this single input() through noice's bottom-bar `cmdline` view
-    -- instead of its centered `cmdline_input` popup. The popup re-renders
-    -- (and re-centers) on every keystroke when cmp attaches its menu,
-    -- which felt like character-level cursor lag. The bottom bar doesn't
-    -- move, so it stays smooth. Restored after the call regardless.
-    local restore_view
-    local ok_noice, noice_cfg = pcall(require, "noice.config")
-    if ok_noice and noice_cfg.options and noice_cfg.options.cmdline
-        and noice_cfg.options.cmdline.format and noice_cfg.options.cmdline.format.input then
-        local fmt = noice_cfg.options.cmdline.format.input
-        local saved = fmt.view
-        fmt.view = "cmdline"
-        restore_view = function() fmt.view = saved end
-    end
-    vim.ui.input({ prompt = "Send to " .. name .. ": " }, function(msg)
-        _G.__sidekick_input_active = false
-        if restore_view then restore_view() end
-        if not msg or msg == "" then return end
-        require("sidekick.cli").send({ msg = msg, name = name, submit = true, focus = false })
-    end)
-end
-
 -- Two-step picker for <leader>ap: first pick a prompt (sidekick's built-in
 -- picker, callback form), then always pick a CLI/model destination — even when
 -- only one CLI is open. Existing-session entries route to whichever model
@@ -560,6 +301,49 @@ return {
             nes = { enabled = false },
             cli = {
                 watch = true,
+                -- Custom context tokens. `{qfitem}` interpolates just the
+                -- currently selected quickfix entry — far less noise than
+                -- `{quickfix}` which dumps the entire list.
+                --   {qfitem}    quickfix item:N: <file>:<lnum>:<col> [TYPE] "<message>"
+                --   {qfitemref} same prefix, omits the message — use when
+                --               Claude already knows the list (e.g. it ran
+                --               the command that produced it) and you just
+                --               need to point at one entry by index.
+                context = (function()
+                    local function ref(include_message)
+                        return function()
+                            local info = vim.fn.getqflist({ items = 0, idx = 0 })
+                            local idx = info.idx or 0
+                            local item = info.items and info.items[idx]
+                            if not item then return "(quickfix is empty)" end
+                            local name = item.filename or ""
+                            if (name == "") and item.bufnr and item.bufnr > 0
+                                and vim.api.nvim_buf_is_valid(item.bufnr) then
+                                name = vim.api.nvim_buf_get_name(item.bufnr)
+                            end
+                            if name ~= "" then name = vim.fs.normalize(name) end
+                            local loc = name ~= "" and name or "[No Name]"
+                            if item.lnum and item.lnum > 0 then
+                                loc = ("%s:%d"):format(loc, item.lnum)
+                                if item.col and item.col > 0 then
+                                    loc = ("%s:%d"):format(loc, item.col)
+                                end
+                            end
+                            local parts = { ("quickfix item:%d:"):format(idx), loc }
+                            local qtype = item.type and item.type ~= "" and item.type:upper()
+                            if qtype then table.insert(parts, ("[%s]"):format(qtype)) end
+                            if include_message then
+                                local text = (item.text or ""):gsub("%s+$", "")
+                                if text ~= "" then table.insert(parts, ('"%s"'):format(text)) end
+                            end
+                            return table.concat(parts, " ")
+                        end
+                    end
+                    return {
+                        qfitem    = ref(true),
+                        qfitemref = ref(false),
+                    }
+                end)(),
                 win = {
                     layout = "right",
                     split = { width = 80 },
@@ -649,39 +433,9 @@ return {
                 mode = { 'n', 't' },
                 desc = 'Toggle current CLI (default Claude)',
             },
-            {
-                '<M-n>',
-                function() new_chat_of_active_cli() end,
-                mode = { 'n', 't' },
-                desc = 'New chat — restart current CLI (preserves history)',
-            },
-            {
-                '<M-,>',
-                function() send_message_to_active_cli() end,
-                mode = { 'n', 't' },
-                desc = 'Prompt for a message and send to the active CLI',
-            },
-            -- <M-1>..<M-9>: send the digit to the active CLI's terminal job
-            -- without focusing it. Lets you answer Claude's number-driven
-            -- TUI prompts (permission accept/decline, plan-mode choices,
-            -- /memory submenus, etc.) from any buffer.
-            { '<M-1>', function() send_keys_to_active_cli('1') end, mode = { 'n', 't' }, desc = 'Send 1 to active CLI (TUI choice)' },
-            { '<M-2>', function() send_keys_to_active_cli('2') end, mode = { 'n', 't' }, desc = 'Send 2 to active CLI (TUI choice)' },
-            { '<M-3>', function() send_keys_to_active_cli('3') end, mode = { 'n', 't' }, desc = 'Send 3 to active CLI (TUI choice)' },
-            { '<M-4>', function() send_keys_to_active_cli('4') end, mode = { 'n', 't' }, desc = 'Send 4 to active CLI (TUI choice)' },
-            { '<M-5>', function() send_keys_to_active_cli('5') end, mode = { 'n', 't' }, desc = 'Send 5 to active CLI (TUI choice)' },
-            { '<M-6>', function() send_keys_to_active_cli('6') end, mode = { 'n', 't' }, desc = 'Send 6 to active CLI (TUI choice)' },
-            { '<M-7>', function() send_keys_to_active_cli('7') end, mode = { 'n', 't' }, desc = 'Send 7 to active CLI (TUI choice)' },
-            { '<M-8>', function() send_keys_to_active_cli('8') end, mode = { 'n', 't' }, desc = 'Send 8 to active CLI (TUI choice)' },
-            { '<M-9>', function() send_keys_to_active_cli('9') end, mode = { 'n', 't' }, desc = 'Send 9 to active CLI (TUI choice)' },
-            -- Scroll the visible sidekick CLI window from another buffer
-            -- without focusing it. Lets you read latest output / scroll back
-            -- through history while keeping your cursor where it is.
-            { '<M-G>', function() scroll_active_cli('G')     end, mode = { 'n', 't' }, desc = 'Scroll active CLI to bottom (latest output)' },
-            { '<M-j>', function() scroll_active_cli('<C-e>') end, mode = { 'n', 't' }, desc = 'Scroll active CLI down one line' },
-            { '<M-k>', function() scroll_active_cli('<C-y>') end, mode = { 'n', 't' }, desc = 'Scroll active CLI up one line' },
-            { '<M-d>', function() scroll_active_cli('<C-d>') end, mode = { 'n', 't' }, desc = 'Scroll active CLI half page down' },
-            { '<M-u>', function() scroll_active_cli('<C-u>') end, mode = { 'n', 't' }, desc = 'Scroll active CLI half page up' },
+            -- <M-n>, <M-,>, <M-1..9>, <M-G/j/k/d/u> live in termcontrol.nvim
+            -- (lua/plugins/ai/termcontrol.lua) — moved out of here so the
+            -- generic terminal-interaction layer is reusable.
             {
                 '<leader>ac',
                 function() require('sidekick.cli').toggle({ name = 'claude', focus = true }) end,

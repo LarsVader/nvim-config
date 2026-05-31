@@ -20,6 +20,9 @@ end, { desc = "Delete word backwards" })
 vim.keymap.set('t', '<S-Tab>', function()
     vim.api.nvim_chan_send(vim.b.terminal_job_id, '\27[Z')
 end, { desc = "Pass Shift+Tab to terminal (Claude mode switch, etc.)" })
+vim.keymap.set('t', '<M-p>', function()
+    vim.api.nvim_chan_send(vim.b.terminal_job_id, '\27p')
+end, { desc = "Pass Alt+P to terminal (Claude model switch)" })
 
 vim.keymap.set({'n', 'v'}, '<leader>ml', [[<cmd>compiler dotnet<cr><cmd>Make "\Lofwyr"<CR>]], { desc = "dotnet Make Lofwyr" })
 

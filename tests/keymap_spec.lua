@@ -178,6 +178,14 @@ describe("global keymaps", function()
         end)
     end)
 
+    describe("terminal mode alt-p pass-through", function()
+        it("<M-p> sends ESC p to terminal", function()
+            local km = h.find_keymap("t", "<M-p>")
+            assert.is_not_nil(km, "<M-p> not found in terminal mode")
+            assert.is_not_nil(km.desc:lower():find("alt%+p"), "desc missing 'alt+p'")
+        end)
+    end)
+
     -- Spelling keymaps
     describe("spelling", function()
         it("]s (next misspelled)", function()
