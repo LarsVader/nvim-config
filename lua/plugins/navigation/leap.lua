@@ -1,6 +1,7 @@
 return {
 	{
 		'https://codeberg.org/andyg/leap.nvim',
+		enabled = false,
 		config = function()
 			require('leap').add_default_mappings()
 		end,
