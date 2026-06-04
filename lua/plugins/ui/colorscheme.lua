@@ -71,6 +71,13 @@ return {
 					global_colors[key] = value
 				end
 			end,
+			on_highlights = function(highlights, colors)
+				-- Flash dims everything except match labels via FlashBackdrop.
+				-- The theme default (dark3 = #314154) is almost invisible on the
+				-- dark bg, making text unreadable during a jump. Lift it to a
+				-- mid-gray so non-matched text stays legible but de-emphasized.
+				highlights.FlashBackdrop = { fg = "#7d8ba3" }
+			end,
 		},
 	},
 	-- Theme switcher with persistence
@@ -104,32 +111,20 @@ return {
 				themes = {
 					-- Nightfox variants
 					{ name = "Nightfox", colorscheme = "nightfox" },
-					{ name = "Dayfox", colorscheme = "dayfox" },
-					{ name = "Dawnfox", colorscheme = "dawnfox" },
-					{ name = "Duskfox", colorscheme = "duskfox" },
-					{ name = "Nordfox", colorscheme = "nordfox" },
-					{ name = "Terafox", colorscheme = "terafox" },
 					{ name = "Carbonfox", colorscheme = "carbonfox" },
 					-- Tokyonight variants
 					{ name = "Tokyonight Storm", colorscheme = "tokyonight-storm" },
 					{ name = "Tokyonight Night", colorscheme = "tokyonight-night" },
 					{ name = "Tokyonight Moon", colorscheme = "tokyonight-moon" },
-					{ name = "Tokyonight Day", colorscheme = "tokyonight-day" },
 					-- Catppuccin variants
 					{ name = "Catppuccin Mocha", colorscheme = "catppuccin-mocha" },
 					{ name = "Catppuccin Macchiato", colorscheme = "catppuccin-macchiato" },
 					{ name = "Catppuccin Frappe", colorscheme = "catppuccin-frappe" },
-					{ name = "Catppuccin Latte", colorscheme = "catppuccin-latte" },
 					-- Rose Pine variants
 					{ name = "Rose Pine", colorscheme = "rose-pine" },
-					{ name = "Rose Pine Moon", colorscheme = "rose-pine-moon" },
-					{ name = "Rose Pine Dawn", colorscheme = "rose-pine-dawn" },
 					-- Kanagawa variants
 					{ name = "Kanagawa Wave", colorscheme = "kanagawa-wave" },
-					{ name = "Kanagawa Dragon", colorscheme = "kanagawa-dragon" },
-					{ name = "Kanagawa Lotus", colorscheme = "kanagawa-lotus" },
 					-- Everforest
-					{ name = "Everforest", colorscheme = "everforest" },
 					{ name = "linkarzu eldritch", colorscheme = "eldritch" },
 				},
 				livePreview = true,
