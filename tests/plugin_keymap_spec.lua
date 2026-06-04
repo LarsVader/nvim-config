@@ -24,6 +24,69 @@ describe("plugin keymaps", function()
         end
     end)
 
+    describe("snacks git_log rebase", function()
+        -- Rebase keys are wired through snacks' own picker config
+        -- (opts.picker.sources.git_log.win.input.keys), not lazy.nvim's `keys`,
+        -- and only exist inside the open picker window -- so we assert against the
+        -- plugin spec directly rather than via has_keymap.
+        local function snacks_picker_opts()
+            h.force_load_plugin("snacks.nvim")
+            for _, spec in ipairs(require("lazy").plugins()) do
+                if spec.name == "snacks.nvim" then
+                    assert.is_table(spec.opts, "snacks.nvim opts missing")
+                    assert.is_table(spec.opts.picker, "opts.picker missing")
+                    return spec.opts.picker
+                end
+            end
+            error("snacks.nvim spec not found")
+        end
+
+        it("git_rebase / git_rebase_interactive are picker actions", function()
+            local picker = snacks_picker_opts()
+            assert.is_table(picker.actions, "opts.picker.actions missing")
+            assert.is_function(picker.actions.git_rebase, "git_rebase action missing")
+            assert.is_function(picker.actions.git_rebase_interactive,
+                "git_rebase_interactive action missing")
+        end)
+
+        local keymaps = {
+            { lhs = "<c-r>r", action = "git_rebase" },
+            { lhs = "<c-r>i", action = "git_rebase_interactive" },
+        }
+        for _, k in ipairs(keymaps) do
+            it(k.lhs .. " -> " .. k.action .. " in git_log", function()
+                local picker = snacks_picker_opts()
+                local keys = vim.tbl_get(picker, "sources", "git_log", "win", "input", "keys")
+                assert.is_table(keys, "git_log input keys missing")
+                local entry = keys[k.lhs]
+                assert.is_table(entry, k.lhs .. " mapping missing")
+                assert.are.equal(k.action, entry[1], k.lhs .. " should map to " .. k.action)
+                assert.are.same({ "n", "i" }, entry.mode, k.lhs .. " should bind n+i modes")
+            end)
+        end
+
+        it("git_status frees <Tab> back to list_down navigation", function()
+            local picker = snacks_picker_opts()
+            local keys = vim.tbl_get(picker, "sources", "git_status", "win", "input", "keys")
+            assert.is_table(keys, "git_status input keys missing")
+            assert.are.equal("list_down", keys["<Tab>"][1], "<Tab> should be list_down, not git_stage")
+        end)
+
+        -- Selecting a change in the status list stages it: stage keys chain
+        -- git_stage with a list move, replacing the generic select_and_* keys.
+        local stage_keys = { ["<c-n>"] = "list_down", ["<c-t>"] = "list_down", ["<c-p>"] = "list_up" }
+        for lhs, move in pairs(stage_keys) do
+            it(lhs .. " stages then " .. move .. " in git_status", function()
+                local picker = snacks_picker_opts()
+                local keys = vim.tbl_get(picker, "sources", "git_status", "win", "input", "keys")
+                local entry = keys[lhs]
+                assert.is_table(entry, lhs .. " mapping missing")
+                assert.are.same({ "git_stage", move }, entry[1], lhs .. " should chain git_stage + " .. move)
+                assert.are.same({ "n", "i" }, entry.mode, lhs .. " should bind n+i modes")
+            end)
+        end
+    end)
+
     describe("harpoon", function()
         it("<leader>ha (add)", function()
             assert.is_true(h.has_keymap("n", "<leader>ha"), "<leader>ha not found")

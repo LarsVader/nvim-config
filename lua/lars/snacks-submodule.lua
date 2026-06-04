@@ -89,22 +89,20 @@ end
 --- async submodule discovery.
 M._state = { resolved = false, current_idx = 1 }
 
---- Discover the git root + submodule list asynchronously, then call cb(ok).
---- Caches the result in M._state for the rest of the session. Never blocks.
----@param cb fun(ok: boolean)
-function M._resolve(cb)
-    if M._state.resolved then
-        cb(true)
-        return
-    end
-
-    local cwd = vim.fn.getcwd()
+--- Discover the git root + submodule list for `cwd` asynchronously. Calls
+--- cb(git_root, submodules) on success (submodules always has "." as its first
+--- entry), or cb(nil) when `cwd` is not inside a git repository. Never blocks --
+--- both git calls run via vim.system and the callback is scheduled on the main
+--- loop. Shared by the picker switcher (_resolve) and the fugitive status switcher.
+---@param cwd string
+---@param cb fun(git_root: string|nil, submodules: string[]|nil)
+function M.discover(cwd, cb)
     vim.system(
         { "git", "-C", cwd, "rev-parse", "--show-toplevel" },
         { text = true },
         function(res)
             if res.code ~= 0 or not res.stdout or vim.trim(res.stdout) == "" then
-                vim.schedule(function() cb(false) end)
+                vim.schedule(function() cb(nil) end)
                 return
             end
             local git_root = vim.trim(res.stdout):gsub("[/\\]$", "")
@@ -114,26 +112,41 @@ function M._resolve(cb)
                 function(res2)
                     local lines = (res2.code == 0 and res2.stdout)
                         and vim.split(res2.stdout, "\n", { trimempty = true }) or {}
-                    local submodules = M.parse_submodules(lines)
-                    vim.schedule(function()
-                        M._state = {
-                            resolved    = true,
-                            source      = M._state.source,
-                            git_root    = git_root,
-                            submodules  = submodules,
-                            current_idx = 1,
-                        }
-                        -- Default to the submodule of the current buffer.
-                        local cur = M.current_submodule(git_root, submodules)
-                        for i, sm in ipairs(submodules) do
-                            if sm == cur then M._state.current_idx = i break end
-                        end
-                        cb(true)
-                    end)
+                    vim.schedule(function() cb(git_root, M.parse_submodules(lines)) end)
                 end
             )
         end
     )
+end
+
+--- Discover the git root + submodule list asynchronously, then call cb(ok).
+--- Caches the result in M._state for the rest of the session. Never blocks.
+---@param cb fun(ok: boolean)
+function M._resolve(cb)
+    if M._state.resolved then
+        cb(true)
+        return
+    end
+
+    M.discover(vim.fn.getcwd(), function(git_root, submodules)
+        if not git_root then
+            cb(false)
+            return
+        end
+        M._state = {
+            resolved    = true,
+            source      = M._state.source,
+            git_root    = git_root,
+            submodules  = submodules,
+            current_idx = 1,
+        }
+        -- Default to the submodule of the current buffer.
+        local cur = M.current_submodule(git_root, submodules)
+        for i, sm in ipairs(submodules) do
+            if sm == cur then M._state.current_idx = i break end
+        end
+        cb(true)
+    end)
 end
 
 --- Shared picker options: switcher actions + keymaps. The keys are inert (they
@@ -224,12 +237,33 @@ function M._pick(picker)
     end)
 end
 
---- Open a submodule-aware snacks picker. Opens instantly (no git work);
---- submodule discovery is deferred to the switcher keys.
+--- Resolve the initial picker cwd from a buffer path: the repo/submodule root the
+--- buffer lives in, so opening the picker from a file inside a submodule scopes to
+--- that submodule rather than the root repo. Returns nil (fall back to the picker
+--- default) when the buffer has no on-disk file or no enclosing git repo.
+--- Snacks.git.get_root is a filesystem walk (looks for the `.git` dir/file) -- no
+--- git subprocess -- so this keeps the open path non-blocking.
+---@param bufpath string|nil absolute buffer path (defaults to current buffer)
+---@return string|nil
+function M.initial_cwd(bufpath)
+    bufpath = bufpath or vim.fn.expand("%:p")
+    if bufpath == "" or not (vim.uv or vim.loop).fs_stat(bufpath) then
+        return nil
+    end
+    return Snacks.git.get_root(vim.fs.dirname(bufpath))
+end
+
+--- Open a submodule-aware snacks picker. Opens instantly (no git subprocess);
+--- the full submodule list is still discovered lazily by the switcher keys.
+--- The initial scope defaults to the current buffer's repo/submodule.
 ---@param source string snacks picker source name (e.g. "git_log", "git_status")
 ---@param opts table|nil extra options forwarded to the picker
 function M.open(source, opts)
     M._state = { resolved = false, current_idx = 1, source = source }
+    opts = opts or {}
+    if opts.cwd == nil then
+        opts.cwd = M.initial_cwd()
+    end
     Snacks.picker[source](picker_opts(opts))
 end
 

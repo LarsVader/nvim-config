@@ -13,6 +13,90 @@ return {
 					sidekick_send = function(...)
 						return require("sidekick.cli.picker.snacks").send(...)
 					end,
+					-- One-shot git_log actions. They act on the highlighted commit
+					-- (item.commit) in the picker's cwd (item.cwd -- so they honour
+					-- submodule-scoped logs). Unlike the submodule switcher these need
+					-- no cross-reopen state or cwd re-scoping of the picker itself, so
+					-- they live inline here rather than in a wrapper module.
+					git_rebase = function(picker, item)
+						if not (item and item.commit) then
+							return Snacks.notify.warn("No commit under cursor", { title = "Git Rebase" })
+						end
+						local commit, cwd = item.commit, item.cwd or picker:cwd()
+						picker:close()
+						-- Rebase the current branch onto the selected commit. Non-interactive,
+						-- so no editor is needed; util.cmd surfaces conflicts/errors in a popup
+						-- (resolve via <leader>gs / :G rebase --continue).
+						Snacks.picker.util.cmd({ "git", "rebase", commit }, function()
+							Snacks.notify("Rebased onto " .. commit, { title = "Git Rebase" })
+							vim.cmd.checktime()
+						end, { cwd = cwd })
+					end,
+					git_rebase_interactive = function(picker, item)
+						if not (item and item.commit) then
+							return Snacks.notify.warn("No commit under cursor", { title = "Git Rebase" })
+						end
+						local commit, cwd = item.commit, item.cwd or picker:cwd()
+						picker:close()
+						-- Interactive rebase needs an editor for the todo list, so delegate
+						-- to Fugitive (loaded on :G), which wires GIT_SEQUENCE_EDITOR back
+						-- into nvim. Fugitive resolves the repo from the *current buffer*,
+						-- not the window cwd -- so an lcd is ignored when the log was scoped
+						-- to a submodule via the <c-g> switcher. Open the rebase in a fresh
+						-- tab whose [No Name] buffer pins no repo, with tcd set to the
+						-- picker's cwd, so Fugitive resolves the repo from that cwd.
+						-- <commit>^ makes the selected commit itself editable; the root
+						-- commit has no parent, so fall back to --root (rebase from the start).
+						vim.schedule(function()
+							local has_parent = vim.system(
+								{ "git", "-C", cwd, "rev-parse", "--verify", "--quiet", commit .. "^" }
+							):wait().code == 0
+							local range = has_parent and ("-i " .. commit .. "^") or "-i --root"
+							vim.cmd("tabnew")
+							vim.cmd("tcd " .. vim.fn.fnameescape(cwd))
+							local ok, err = pcall(vim.cmd, "G rebase " .. range)
+							if not ok then
+								vim.cmd("silent! tabclose")
+								Snacks.notify.error("Interactive rebase failed: " .. tostring(err),
+									{ title = "Git Rebase" })
+							end
+						end)
+					end,
+				},
+				sources = {
+					-- Rebase keys live only in the commit-log picker. <c-r> is a prefix
+					-- (the second key disambiguates), so it neither fires a bare-<c-r>
+					-- timeout nor clashes with the global <c-r><c-w>/<c-r>% register
+					-- inserts, and <c-r>i avoids the <c-i>==<Tab> terminal collision.
+					git_log = {
+						win = {
+							input = {
+								keys = {
+									["<c-r>r"] = { "git_rebase", mode = { "n", "i" }, desc = "Rebase branch onto commit" },
+									["<c-r>i"] = { "git_rebase_interactive", mode = { "n", "i" }, desc = "Interactive rebase from commit" },
+								},
+							},
+						},
+					},
+					git_status = {
+						win = {
+							input = {
+								keys = {
+									-- snacks' git_status default binds <Tab> to git_stage,
+									-- shadowing the global list_down nav. Conceptually,
+									-- "selecting" a change in a status list IS staging it, so
+									-- move staging onto the select keys (git_stage toggles
+									-- stage/unstage and acts on the cursor item, or on all
+									-- multi-selected items after <c-a>) and give <Tab> back
+									-- to navigation.
+									["<Tab>"] = { "list_down", mode = { "n", "i" } },
+									["<c-n>"] = { { "git_stage", "list_down" }, mode = { "n", "i" }, desc = "Stage + next" },
+									["<c-t>"] = { { "git_stage", "list_down" }, mode = { "n", "i" }, desc = "Stage + next" },
+									["<c-p>"] = { { "git_stage", "list_up" }, mode = { "n", "i" }, desc = "Stage + prev" },
+								},
+							},
+						},
+					},
 				},
 				win = {
 					input = {
@@ -100,6 +184,7 @@ return {
 			},
 			{ "<leader>fl", function() require("lars.snacks-submodule").open("git_log") end,      desc = "Git Log (submodule-aware)" },
 			{ "<leader>fb", function() require("lars.snacks-submodule").open("git_branches") end, desc = "Git Log (submodule-aware)" },
+			{ "<leader>fs", function() require("lars.snacks-submodule").open("git_status") end, desc = "Git Status (submodule-aware)" },
 			{ "<leader>fc", function() Snacks.picker.git_log_file() end,                          desc = "Git Log (submodule-aware)" },
 			{ "<leader>fB", function() Snacks.gitbrowse() end,                                    desc = "Git Browse",               mode = { "n", "v" } },
 			{ "<leader>fh", function() Snacks.picker.help() end,                                  desc = "Help Pages" },

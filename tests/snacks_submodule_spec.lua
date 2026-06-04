@@ -77,4 +77,82 @@ describe("snacks-submodule", function()
             assert.is_true(h.has_keymap("n", "<leader>gl"), "<leader>gl not found")
         end)
     end)
+
+    describe("discover", function()
+        -- Shared by the picker switcher and the fugitive <c-g> status switcher.
+        local dir
+
+        after_each(function()
+            if dir then vim.fn.delete(dir, "rf") end
+        end)
+
+        local function run_discover(cwd)
+            local done, root, subs = false, nil, nil
+            ssm.discover(cwd, function(r, s) root, subs, done = r, s, true end)
+            vim.wait(5000, function() return done end, 25)
+            return done, root, subs
+        end
+
+        it("returns the git root and a root entry for a plain repo", function()
+            dir = vim.fs.normalize(vim.fn.tempname())
+            vim.fn.mkdir(dir, "p")
+            vim.fn.system({ "git", "-C", dir, "init" })
+            local done, root, subs = run_discover(dir)
+            assert.is_true(done, "discover callback never fired")
+            assert.are.equal(dir, vim.fs.normalize(root or ""))
+            assert.are.same({ "." }, subs)
+        end)
+
+        it("calls back with nil outside a git repository", function()
+            dir = vim.fs.normalize(vim.fn.tempname())
+            vim.fn.mkdir(dir, "p")
+            local done, root = run_discover(dir)
+            assert.is_true(done, "discover callback never fired")
+            assert.is_nil(root)
+        end)
+    end)
+
+    describe("initial_cwd", function()
+        -- Opening the picker from a file should scope to that file's
+        -- repo/submodule, not the global cwd's root. A submodule is detected by
+        -- its `.git` *file* (vs the root repo's `.git` dir); both satisfy get_root.
+        local root, main, sub
+
+        before_each(function()
+            require("lazy").load({ plugins = { "snacks.nvim" } })
+            root = vim.fs.normalize(vim.fn.tempname())
+            main = root .. "/main"
+            sub = main .. "/sub"
+            vim.fn.mkdir(sub .. "/deep", "p")
+            vim.fn.mkdir(main .. "/.git", "p")       -- root repo: .git dir
+            vim.fn.writefile({ "gitdir: x" }, sub .. "/.git") -- submodule: .git file
+            vim.fn.writefile({ "" }, main .. "/y.txt")
+            vim.fn.writefile({ "" }, sub .. "/x.txt")
+            vim.fn.writefile({ "" }, sub .. "/deep/z.txt")
+        end)
+
+        after_each(function()
+            if root then vim.fn.delete(root, "rf") end
+        end)
+
+        it("scopes a submodule file to the submodule root", function()
+            assert.are.equal(sub, vim.fs.normalize(ssm.initial_cwd(sub .. "/x.txt")))
+        end)
+
+        it("scopes a nested submodule file to the submodule root", function()
+            assert.are.equal(sub, vim.fs.normalize(ssm.initial_cwd(sub .. "/deep/z.txt")))
+        end)
+
+        it("scopes a root-repo file to the root", function()
+            assert.are.equal(main, vim.fs.normalize(ssm.initial_cwd(main .. "/y.txt")))
+        end)
+
+        it("returns nil for an empty/virtual buffer path", function()
+            assert.is_nil(ssm.initial_cwd(""))
+        end)
+
+        it("returns nil for a non-existent path", function()
+            assert.is_nil(ssm.initial_cwd(main .. "/does-not-exist.txt"))
+        end)
+    end)
 end)

@@ -278,347 +278,257 @@ return {
 		end,
 		keys = {
 			{ '<leader>gs', function()
-				local function float_opts()
-					local width = math.floor(vim.o.columns * 0.9)
-					local height = math.floor(vim.o.lines * 0.9)
-					return {
-						relative = 'editor',
-						width = width,
-						height = height,
-						col = math.floor((vim.o.columns - width) / 2),
-						row = math.floor((vim.o.lines - height) / 2),
-						style = 'minimal',
-						border = 'rounded',
-					}
-				end
-
-				-- Close any existing fugitive floats
-				for _, win in ipairs(vim.api.nvim_list_wins()) do
-					if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
-						vim.api.nvim_win_close(win, true)
+				-- open_status(worktree): worktree=nil shows the current repo (the
+				-- default <leader>gs behaviour); passing a submodule worktree path
+				-- reopens the status scoped to that submodule. Declared up front so the
+				-- in-buffer <c-g> switcher (added below) can call back into it.
+				local open_status
+				open_status = function(worktree)
+					local function float_opts()
+						local width = math.floor(vim.o.columns * 0.9)
+						local height = math.floor(vim.o.lines * 0.9)
+						return {
+							relative = 'editor',
+							width = width,
+							height = height,
+							col = math.floor((vim.o.columns - width) / 2),
+							row = math.floor((vim.o.lines - height) / 2),
+							style = 'minimal',
+							border = 'rounded',
+						}
 					end
-				end
-				pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveFloat')
 
-				-- Create fugitive buffer, then move it to a float
-				vim.cmd('G')
-				local buf = vim.api.nvim_get_current_buf()
-				vim.bo[buf].bufhidden = 'hide'
-				vim.api.nvim_win_close(0, false)
-				local float_win = vim.api.nvim_open_win(buf, true, float_opts())
-				vim.w[float_win].fugitive_float = true
-
-				local group = vim.api.nvim_create_augroup('FugitiveFloat', { clear = true })
-
-				local function has_fugitive_float()
-					for _, win in ipairs(vim.api.nvim_list_wins()) do
-						if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
-							return true
-						end
-					end
-					return false
-				end
-
-				local function cleanup()
-					pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveFloat')
-				end
-
-				local function close_all_fugitive_floats()
-					for _, win in ipairs(vim.api.nvim_list_wins()) do
-						if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
-							local b = vim.api.nvim_win_get_buf(win)
-							vim.bo[b].bufhidden = 'hide'
-							vim.api.nvim_win_close(win, false)
-						end
-					end
-				end
-
-				-- Remap split-opening keys to edit in the same float window
-				vim.keymap.set('n', 'o', '<CR>', { buffer = buf, remap = true })
-				vim.keymap.set('n', 'gO', '<CR>', { buffer = buf, remap = true })
-
-				-- Fallback: intercept new windows spawned from a fugitive float
-				vim.api.nvim_create_autocmd('WinNew', {
-					group = group,
-					callback = function()
-						local prev = vim.fn.win_getid(vim.fn.winnr('#'))
-						if not (prev ~= 0 and vim.api.nvim_win_is_valid(prev)
-							and vim.w[prev].fugitive_float) then
-							return
-						end
-						local new_win = vim.api.nvim_get_current_win()
-						if not vim.api.nvim_win_is_valid(new_win) then return end
-						local config = vim.api.nvim_win_get_config(new_win)
-						if config.relative ~= '' then return end
-						local new_buf = vim.api.nvim_win_get_buf(new_win)
-						vim.api.nvim_win_close(new_win, false)
-						if vim.api.nvim_win_is_valid(prev) then
-							vim.api.nvim_set_current_win(prev)
-							vim.cmd('buffer ' .. new_buf)
-						end
-					end,
-				})
-
-				-- Clean up when all fugitive floats are gone
-				vim.api.nvim_create_autocmd('WinClosed', {
-					group = group,
-					callback = function()
-						vim.schedule(function()
-							if not has_fugitive_float() then
-								cleanup()
-								-- Wipe the fugitive buffer if it's still around
-								if vim.api.nvim_buf_is_valid(buf) then
-									vim.api.nvim_buf_delete(buf, { force = true })
-								end
-							end
-						end)
-					end,
-				})
-
-				-- Add +/-, <C-o> keymaps to all diff windows
-				local function setup_diff_keymaps(restore_buf)
-					for _, win in ipairs(vim.api.nvim_list_wins()) do
-						if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then
-							vim.wo[win].foldlevel = 0
-							local b = vim.api.nvim_win_get_buf(win)
-							local function set_context(delta)
-								return function()
-									local opt = vim.o.diffopt
-									local cur = tonumber(opt:match('context:(%d+)')) or 6
-									local new = math.max(0, cur + delta)
-									vim.opt.diffopt:remove('context:' .. cur)
-									vim.opt.diffopt:append('context:' .. new)
-									for _, w in ipairs(vim.api.nvim_list_wins()) do
-										if vim.api.nvim_win_is_valid(w) and vim.wo[w].diff then
-											vim.wo[w].foldlevel = 0
-										end
-									end
-								end
-							end
-							vim.keymap.set('n', '+', set_context(3), { buffer = b, desc = 'More diff context' })
-							vim.keymap.set('n', '-', set_context(-3), { buffer = b, desc = 'Less diff context' })
-							vim.keymap.set('n', '<C-o>', function()
-								vim.cmd('diffoff!')
-								vim.cmd('only')
-								if restore_buf and vim.api.nvim_buf_is_valid(restore_buf) then
-									vim.cmd('buffer ' .. restore_buf)
-								end
-							end, { buffer = b, desc = 'Close diff, return to previous buffer' })
-						end
-					end
-				end
-
-				-- Diff: 4-way merge during conflicts, 2-way diff otherwise
-				vim.keymap.set('n', 'd', function()
-					local cursor = vim.api.nvim_win_get_cursor(0)
-					-- Extract filename from fugitive status line (e.g. "M file.txt", "UU file.txt")
-					local cfile = vim.api.nvim_get_current_line():match('^%S+%s+(.-)%s*$')
-					local git_dir = vim.fn.FugitiveGitDir()
-					local worktree = vim.fn.FugitiveWorkTree()
-					local is_merge = vim.fn.filereadable(git_dir .. '/MERGE_HEAD') == 1
-						or vim.fn.filereadable(git_dir .. '/REBASE_HEAD') == 1
-					cleanup()
-					-- Remember the buffer behind the float to restore later
-					local restore_buf = nil
-					for _, win in ipairs(vim.api.nvim_list_wins()) do
-						if vim.api.nvim_win_is_valid(win) and not vim.w[win].fugitive_float then
-							local config = vim.api.nvim_win_get_config(win)
-							if config.relative == '' then
-								restore_buf = vim.api.nvim_win_get_buf(win)
-								break
-							end
-						end
-					end
-					-- Close all float windows
+					-- Close any existing fugitive floats
 					for _, win in ipairs(vim.api.nvim_list_wins()) do
 						if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
 							vim.api.nvim_win_close(win, true)
 						end
 					end
-					if vim.api.nvim_buf_is_valid(buf) then
-						vim.api.nvim_buf_delete(buf, { force = true })
+					pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveFloat')
+
+					-- Create the fugitive status buffer (scoped to `worktree` when given),
+					-- then move it to a float. :G opens a new split and resolves the repo
+					-- from the current buffer/cwd. To scope to a submodule we run it from a
+					-- throwaway scratch split whose [No Name] buffer pins no repo, with lcd
+					-- set to the submodule -- fugitive then resolves from cwd (an lcd alone
+					-- is ignored while a parent-repo buffer is focused; verified).
+					local buf
+					if worktree then
+						vim.cmd('topleft new')
+						local scope_win = vim.api.nvim_get_current_win()
+						vim.bo.bufhidden = 'wipe'
+						vim.cmd('lcd ' .. vim.fn.fnameescape(worktree))
+						vim.cmd('G')
+						buf = vim.api.nvim_get_current_buf()
+						vim.bo[buf].bufhidden = 'hide'
+						local g_win = vim.api.nvim_get_current_win()
+						if g_win ~= scope_win and vim.api.nvim_win_is_valid(g_win) then
+							vim.api.nvim_win_close(g_win, false)
+						end
+						if vim.api.nvim_win_is_valid(scope_win) then
+							vim.api.nvim_win_close(scope_win, true)
+						end
+					else
+						vim.cmd('G')
+						buf = vim.api.nvim_get_current_buf()
+						vim.bo[buf].bufhidden = 'hide'
+						vim.api.nvim_win_close(0, false)
+					end
+					local float_win = vim.api.nvim_open_win(buf, true, float_opts())
+					vim.w[float_win].fugitive_float = true
+
+					local group = vim.api.nvim_create_augroup('FugitiveFloat', { clear = true })
+
+					local function has_fugitive_float()
+						for _, win in ipairs(vim.api.nvim_list_wins()) do
+							if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
+								return true
+							end
+						end
+						return false
 					end
 
-					if is_merge and cfile and cfile ~= '' then
-						-- 4-way merge: LOCAL | BASE | REMOTE / MERGED
-						vim.cmd('only')
-						local escaped = vim.fn.fnameescape(cfile)
-						vim.cmd('Gedit :2:' .. escaped)
-						local local_win = vim.api.nvim_get_current_win()
-						vim.cmd('diffthis')
-						vim.cmd('rightbelow vsplit')
-						vim.cmd('Gedit :1:' .. escaped)
-						local base_win = vim.api.nvim_get_current_win()
-						vim.cmd('diffthis')
-						vim.cmd('rightbelow vsplit')
-						vim.cmd('Gedit :3:' .. escaped)
-						local remote_win = vim.api.nvim_get_current_win()
-						vim.cmd('diffthis')
-						vim.cmd('botright split ' .. vim.fn.fnameescape(worktree .. '/' .. cfile))
-						local merged_buf = vim.api.nvim_get_current_buf()
-						local merged_win = vim.api.nvim_get_current_win()
-						vim.cmd('diffthis')
-						-- Winbar labels (window-local) so you can't mix up which side is which
-						vim.wo[local_win].winbar  = '%#DiffAdd# LOCAL  (ours :2) %*  <leader>cl = take this side'
-						vim.wo[base_win].winbar   = '%#DiffChange# BASE   (ancestor :1) %*  <leader>cb = take this side'
-						vim.wo[remote_win].winbar = '%#DiffDelete# REMOTE (theirs :3) %*  <leader>cr = take this side'
-						vim.wo[merged_win].winbar = '%#StatusLine# MERGED (worktree) %*  ]x [x = jump conflicts'
+					local function cleanup()
+						pcall(vim.api.nvim_del_augroup_by_name, 'FugitiveFloat')
+					end
 
-						-- Find the conflict region containing `lnum` in the merged buffer.
-						-- Returns {start, mid_base, sep, end_} as 1-indexed line numbers,
-						-- or nil if the cursor isn't inside a conflict region.
-						local function find_conflict_at(lnum)
-							local lines = vim.api.nvim_buf_get_lines(merged_buf, 0, -1, false)
-							local start
-							for i = lnum, 1, -1 do
-								local l = lines[i]
-								if l and l:match('^<<<<<<<') then start = i; break
-								-- A >>>>>>> on the cursor line itself closes the conflict
-								-- the cursor sits inside, so don't bail until we're above it.
-								elseif l and l:match('^>>>>>>>') and i < lnum then return nil end
+					local function close_all_fugitive_floats()
+						for _, win in ipairs(vim.api.nvim_list_wins()) do
+							if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
+								local b = vim.api.nvim_win_get_buf(win)
+								vim.bo[b].bufhidden = 'hide'
+								vim.api.nvim_win_close(win, false)
 							end
-							if not start then return nil end
-							local mid_base, sep, end_
-							for i = start + 1, #lines do
-								local l = lines[i]
-								if l:match('^|||||||') then mid_base = i
-								elseif l:match('^=======') and not sep then sep = i
-								elseif l:match('^>>>>>>>') then end_ = i; break
-								elseif l:match('^<<<<<<<') then return nil end
-							end
-							if not (sep and end_) or lnum > end_ then return nil end
-							return { start = start, mid_base = mid_base, sep = sep, end_ = end_ }
 						end
+					end
 
-						-- Replace a single conflict region with the chosen side.
-						-- Returns true on success, false if the side isn't available.
-						local function apply_side(region, side)
-							local lines = vim.api.nvim_buf_get_lines(merged_buf, 0, -1, false)
-							local replacement
-							if side == 'local' then
-								local stop = (region.mid_base or region.sep) - 1
-								replacement = vim.list_slice(lines, region.start + 1, stop)
-							elseif side == 'remote' then
-								replacement = vim.list_slice(lines, region.sep + 1, region.end_ - 1)
-							elseif side == 'base' then
-								if not region.mid_base then return false end
-								replacement = vim.list_slice(lines, region.mid_base + 1, region.sep - 1)
-							elseif side == 'all' then
-								local ours_stop = (region.mid_base or region.sep) - 1
-								local ours = vim.list_slice(lines, region.start + 1, ours_stop)
-								local theirs = vim.list_slice(lines, region.sep + 1, region.end_ - 1)
-								replacement = ours
-								vim.list_extend(replacement, theirs)
-							end
-							vim.api.nvim_buf_set_lines(merged_buf, region.start - 1, region.end_, false, replacement)
-							return true
-						end
+					-- Remap split-opening keys to edit in the same float window
+					vim.keymap.set('n', 'o', '<CR>', { buffer = buf, remap = true })
+					vim.keymap.set('n', 'gO', '<CR>', { buffer = buf, remap = true })
 
-						local SIDE_LABEL = { ['local'] = 'LOCAL', remote = 'REMOTE', base = 'BASE', all = 'ALL' }
-
-						local function resolve_at_cursor(side)
-							local lnum = vim.api.nvim_win_get_cursor(0)[1]
-							local region = find_conflict_at(lnum)
-							if not region then
-								vim.notify('No conflict under cursor (use ]x / [x to jump)', vim.log.levels.WARN)
+					-- <c-g>: pick which submodule's status to show (reuses the snacks
+					-- picker's submodule discovery). Reopens the status float scoped to the
+					-- chosen submodule via open_status(). "." is the superproject root.
+					vim.keymap.set('n', '<c-g>', function()
+						local ssm = require('lars.snacks-submodule')
+						ssm.discover(vim.fn.getcwd(), function(git_root, submodules)
+							if not git_root or #submodules <= 1 then
+								vim.notify('No submodules in this repository', vim.log.levels.INFO)
 								return
 							end
-							if not apply_side(region, side) then
-								vim.notify('BASE not in conflict markers (need merge.conflictStyle = diff3)', vim.log.levels.WARN)
+							local items = {}
+							for _, sm in ipairs(submodules) do
+								items[#items + 1] = { sm = sm, label = sm == '.' and '(root)' or sm }
 							end
-						end
+							vim.ui.select(items, {
+								prompt = 'Git status for submodule',
+								format_item = function(it) return it.label end,
+							}, function(choice)
+								if not choice then return end
+								open_status(ssm.submodule_cwd(git_root, choice.sm))
+							end)
+						end)
+					end, { buffer = buf, desc = 'Git status: switch submodule' })
 
-						local function resolve_all(side)
-							-- Walk from last to first conflict so edits below don't shift the
-							-- cached `starts` line numbers above them (an edit at line N never
-							-- moves lines < N, so earlier indices stay valid).
-							local lines = vim.api.nvim_buf_get_lines(merged_buf, 0, -1, false)
-							local starts = {}
-							for i, l in ipairs(lines) do
-								if l:match('^<<<<<<<') then table.insert(starts, i) end
-							end
-							if #starts == 0 then
-								vim.notify('No conflicts in file', vim.log.levels.INFO)
+					-- Fallback: intercept new windows spawned from a fugitive float
+					vim.api.nvim_create_autocmd('WinNew', {
+						group = group,
+						callback = function()
+							local prev = vim.fn.win_getid(vim.fn.winnr('#'))
+							if not (prev ~= 0 and vim.api.nvim_win_is_valid(prev)
+								and vim.w[prev].fugitive_float) then
 								return
 							end
-							local count, skipped = 0, 0
-							for i = #starts, 1, -1 do
-								local region = find_conflict_at(starts[i])
-								if region and apply_side(region, side) then
-									count = count + 1
-								else
-									skipped = skipped + 1
+							local new_win = vim.api.nvim_get_current_win()
+							if not vim.api.nvim_win_is_valid(new_win) then return end
+							local config = vim.api.nvim_win_get_config(new_win)
+							if config.relative ~= '' then return end
+							local new_buf = vim.api.nvim_win_get_buf(new_win)
+							vim.api.nvim_win_close(new_win, false)
+							if vim.api.nvim_win_is_valid(prev) then
+								vim.api.nvim_set_current_win(prev)
+								vim.cmd('buffer ' .. new_buf)
+							end
+						end,
+					})
+
+					-- Clean up when all fugitive floats are gone
+					vim.api.nvim_create_autocmd('WinClosed', {
+						group = group,
+						callback = function()
+							vim.schedule(function()
+								if not has_fugitive_float() then
+									cleanup()
+									-- Wipe the fugitive buffer if it's still around
+									if vim.api.nvim_buf_is_valid(buf) then
+										vim.api.nvim_buf_delete(buf, { force = true })
+									end
 								end
-							end
-							local msg = string.format('Resolved %d conflict(s) as %s', count, SIDE_LABEL[side])
-							if skipped > 0 then
-								msg = msg .. string.format(' (skipped %d, BASE markers missing)', skipped)
-							end
-							vim.notify(msg, vim.log.levels.INFO)
-						end
+							end)
+						end,
+					})
 
-						-- Per-conflict (current cursor region only).
-						-- Avoid bare g<letter> here: gr/gb/ga clash with LSP/Comment.nvim prefixes
-						-- and would wait timeoutlen before firing.
-						vim.keymap.set('n', '<leader>cl', function() resolve_at_cursor('local') end,
-							{ buffer = merged_buf, desc = 'Conflict: take LOCAL (this region)' })
-						vim.keymap.set('n', '<leader>cb', function() resolve_at_cursor('base') end,
-							{ buffer = merged_buf, desc = 'Conflict: take BASE (this region)' })
-						vim.keymap.set('n', '<leader>cr', function() resolve_at_cursor('remote') end,
-							{ buffer = merged_buf, desc = 'Conflict: take REMOTE (this region)' })
-						vim.keymap.set('n', '<leader>ca', function() resolve_at_cursor('all') end,
-							{ buffer = merged_buf, desc = 'Conflict: keep ALL (this region)' })
-
-						-- Whole-file (every conflict in the buffer)
-						vim.keymap.set('n', '<leader>cL', function() resolve_all('local') end,
-							{ buffer = merged_buf, desc = 'Conflict: take LOCAL (whole file)' })
-						vim.keymap.set('n', '<leader>cB', function() resolve_all('base') end,
-							{ buffer = merged_buf, desc = 'Conflict: take BASE (whole file)' })
-						vim.keymap.set('n', '<leader>cR', function() resolve_all('remote') end,
-							{ buffer = merged_buf, desc = 'Conflict: take REMOTE (whole file)' })
-						vim.keymap.set('n', '<leader>cA', function() resolve_all('all') end,
-							{ buffer = merged_buf, desc = 'Conflict: keep ALL (whole file)' })
-
-						-- Conflict navigation
-						vim.keymap.set('n', ']x', function()
-							if vim.fn.search('^<<<<<<<', 'W') == 0 then
-								vim.notify('No more conflicts', vim.log.levels.INFO)
-							end
-						end, { buffer = merged_buf, desc = 'Conflict: jump to next' })
-						vim.keymap.set('n', '[x', function()
-							if vim.fn.search('^<<<<<<<', 'bW') == 0 then
-								vim.notify('No previous conflict', vim.log.levels.INFO)
-							end
-						end, { buffer = merged_buf, desc = 'Conflict: jump to previous' })
-
-						setup_diff_keymaps(restore_buf)
-					else
-						-- Regular 2-way diff
-						vim.cmd('G')
-						vim.cmd('only')
-						pcall(vim.api.nvim_win_set_cursor, 0, cursor)
-						vim.api.nvim_create_autocmd('WinNew', {
-							once = true,
-							callback = function()
-								vim.schedule(function()
-									for _, win in ipairs(vim.api.nvim_list_wins()) do
-										if vim.api.nvim_win_is_valid(win) then
-											local b = vim.api.nvim_win_get_buf(win)
-											if vim.api.nvim_buf_is_valid(b) and vim.bo[b].filetype == 'fugitive' then
-												vim.api.nvim_win_close(win, false)
-												break
+					-- Add +/-, <C-o> keymaps to all diff windows
+					local function setup_diff_keymaps(restore_buf)
+						for _, win in ipairs(vim.api.nvim_list_wins()) do
+							if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then
+								vim.wo[win].foldlevel = 0
+								local b = vim.api.nvim_win_get_buf(win)
+								local function set_context(delta)
+									return function()
+										local opt = vim.o.diffopt
+										local cur = tonumber(opt:match('context:(%d+)')) or 6
+										local new = math.max(0, cur + delta)
+										vim.opt.diffopt:remove('context:' .. cur)
+										vim.opt.diffopt:append('context:' .. new)
+										for _, w in ipairs(vim.api.nvim_list_wins()) do
+											if vim.api.nvim_win_is_valid(w) and vim.wo[w].diff then
+												vim.wo[w].foldlevel = 0
 											end
 										end
 									end
-									setup_diff_keymaps(restore_buf)
-								end)
-							end,
-						})
-						vim.schedule(function()
-							vim.api.nvim_feedkeys('dv', 'm', false)
-						end)
+								end
+								vim.keymap.set('n', '+', set_context(3), { buffer = b, desc = 'More diff context' })
+								vim.keymap.set('n', '-', set_context(-3), { buffer = b, desc = 'Less diff context' })
+								vim.keymap.set('n', '<C-o>', function()
+									vim.cmd('diffoff!')
+									vim.cmd('only')
+									if restore_buf and vim.api.nvim_buf_is_valid(restore_buf) then
+										vim.cmd('buffer ' .. restore_buf)
+									end
+								end, { buffer = b, desc = 'Close diff, return to previous buffer' })
+							end
+						end
 					end
-				end, { buffer = buf })
+
+					-- Diff: 4-way merge during conflicts, 2-way diff otherwise
+					vim.keymap.set('n', 'd', function()
+						local cursor = vim.api.nvim_win_get_cursor(0)
+						-- Extract filename from fugitive status line (e.g. "M file.txt", "UU file.txt")
+						local cfile = vim.api.nvim_get_current_line():match('^%S+%s+(.-)%s*$')
+						local git_dir = vim.fn.FugitiveGitDir()
+						local worktree = vim.fn.FugitiveWorkTree()
+						local is_merge = vim.fn.filereadable(git_dir .. '/MERGE_HEAD') == 1
+							or vim.fn.filereadable(git_dir .. '/REBASE_HEAD') == 1
+						cleanup()
+						-- Remember the buffer behind the float to restore later
+						local restore_buf = nil
+						for _, win in ipairs(vim.api.nvim_list_wins()) do
+							if vim.api.nvim_win_is_valid(win) and not vim.w[win].fugitive_float then
+								local config = vim.api.nvim_win_get_config(win)
+								if config.relative == '' then
+									restore_buf = vim.api.nvim_win_get_buf(win)
+									break
+								end
+							end
+						end
+						-- Close all float windows
+						for _, win in ipairs(vim.api.nvim_list_wins()) do
+							if vim.api.nvim_win_is_valid(win) and vim.w[win].fugitive_float then
+								vim.api.nvim_win_close(win, true)
+							end
+						end
+						if vim.api.nvim_buf_is_valid(buf) then
+							vim.api.nvim_buf_delete(buf, { force = true })
+						end
+
+						if is_merge and cfile and cfile ~= '' then
+							-- 4-way merge layout (LOCAL | BASE | REMOTE / MERGED) is now
+							-- provided by the conflict4.nvim plugin. It owns parsing,
+							-- resolution keymaps (<leader>cl/cb/cr/ca + uppercase whole-file
+							-- variants), and ]x/[x navigation.
+							vim.cmd('only')
+							require('conflict4').open(worktree .. '/' .. cfile)
+							setup_diff_keymaps(restore_buf)
+						else
+							-- Regular 2-way diff
+							vim.cmd('G')
+							vim.cmd('only')
+							pcall(vim.api.nvim_win_set_cursor, 0, cursor)
+							vim.api.nvim_create_autocmd('WinNew', {
+								once = true,
+								callback = function()
+									vim.schedule(function()
+										for _, win in ipairs(vim.api.nvim_list_wins()) do
+											if vim.api.nvim_win_is_valid(win) then
+												local b = vim.api.nvim_win_get_buf(win)
+												if vim.api.nvim_buf_is_valid(b) and vim.bo[b].filetype == 'fugitive' then
+													vim.api.nvim_win_close(win, false)
+													break
+												end
+											end
+										end
+										setup_diff_keymaps(restore_buf)
+									end)
+								end,
+							})
+							vim.schedule(function()
+								vim.api.nvim_feedkeys('dv', 'm', false)
+							end)
+						end
+					end, { buffer = buf })
+				end
+				open_status()
 			end, desc='Git status' },
 			{ '<leader>gb', ':G blame<CR>', desc='Git blame' },
 			{ '<leader>gc', ':G commit<CR>', desc='Git commit' },

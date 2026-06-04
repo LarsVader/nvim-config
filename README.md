@@ -144,6 +144,7 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 > `lua/plugins/sourcecontrol/fugitive.lua`
 > Powered by vim-fugitive. `<leader>gb` shows commit messages inline in the blame view (via fugitive-blame-ext).
 > For commit history and branch management, use Telescope (`<leader>fl`, `<leader>fb`).
+> Inside the commit-log picker (`<leader>fl`): `<c-r>r` rebases the current branch onto the commit under the cursor, and `<c-r>i` starts an interactive rebase from that commit (`git rebase -i <hash>^`, opened via fugitive in a fresh tab so the todo list is editable in nvim). Both honour the picker's submodule scope -- including after switching submodule with `<c-g>` -- and `<c-r>i` falls back to `--root` when the selected commit is the repo's first commit.
 
 ### Diffview -- Diff and File History
 
