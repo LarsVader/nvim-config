@@ -433,6 +433,12 @@ return {
                 mode = { 'n', 't' },
                 desc = 'Toggle current CLI (default Claude)',
             },
+			{
+				"<M-a>",
+				function() require("sidekick.cli").focus() end,
+				desc = "Sidekick Focus",
+				mode = { "n", "t", "i", "x" },
+			},
             -- <M-n>, <M-,>, <M-1..9>, <M-G/j/k/d/u> live in termcontrol.nvim
             -- (lua/plugins/ai/termcontrol.lua) — moved out of here so the
             -- generic terminal-interaction layer is reusable.
