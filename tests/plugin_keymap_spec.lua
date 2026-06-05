@@ -52,6 +52,7 @@ describe("plugin keymaps", function()
         local keymaps = {
             { lhs = "<c-r>r", action = "git_rebase" },
             { lhs = "<c-r>i", action = "git_rebase_interactive" },
+            { lhs = "<c-d>", action = "diffview_open" },
         }
         for _, k in ipairs(keymaps) do
             it(k.lhs .. " -> " .. k.action .. " in git_log", function()

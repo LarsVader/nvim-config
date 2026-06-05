@@ -62,6 +62,18 @@ return {
 							end
 						end)
 					end,
+					-- Open the selected commit in Diffview (commit vs its parent).
+					diffview_open = function(picker, item)
+						if not (item and item.commit) then
+							return Snacks.notify.warn("No commit under cursor", { title = "Diffview" })
+						end
+						local commit, cwd = item.commit, item.cwd or picker:cwd()
+						picker:close()
+						-- -C scopes Diffview to the picker's cwd so submodule-scoped logs
+						-- open the right repo; <commit>^! is Diffview's single-commit diff.
+						require("lazy").load({ plugins = { "diffview.nvim" } })
+						require("diffview").open({ "-C" .. cwd, commit .. "^!" })
+					end,
 				},
 				sources = {
 					-- Rebase keys live only in the commit-log picker. <c-r> is a prefix
@@ -74,6 +86,8 @@ return {
 								keys = {
 									["<c-r>r"] = { "git_rebase", mode = { "n", "i" }, desc = "Rebase branch onto commit" },
 									["<c-r>i"] = { "git_rebase_interactive", mode = { "n", "i" }, desc = "Interactive rebase from commit" },
+									-- <c-d> overrides list_scroll_down in the git_log picker only.
+									["<c-d>"] = { "diffview_open", mode = { "n", "i" }, desc = "Open commit in Diffview" },
 								},
 							},
 						},
