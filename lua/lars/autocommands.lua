@@ -56,27 +56,47 @@ vim.api.nvim_create_autocmd("FileType", {
 	end,
 })
 
+local function help_to_float(buf)
+	-- Only act on help buffers (BufWinEnter fires for every buffer).
+	if vim.bo[buf].filetype ~= "help" then return end
+
+	local win = vim.fn.bufwinid(buf)
+	if win == -1 then return end
+	-- Already floating (e.g. our own float) → nothing to do.
+	if vim.api.nvim_win_get_config(win).relative ~= "" then return end
+
+	local width = math.floor(vim.o.columns * 0.85)
+	local height = math.floor(vim.o.lines * 0.85)
+	vim.api.nvim_open_win(buf, true, {
+		relative = "editor",
+		width = width,
+		height = height,
+		row = math.floor((vim.o.lines - height) / 2),
+		col = math.floor((vim.o.columns - width) / 2),
+		border = "rounded",
+		title = " Help ",
+		title_pos = "center",
+	})
+	pcall(vim.api.nvim_win_close, win, false)
+end
+
+local help_float_group = vim.api.nvim_create_augroup("HelpFloat", {})
+
+-- FileType fires when the help buffer is first created; BufWinEnter covers the
+-- case where an existing help buffer is reopened in a split (FileType won't
+-- fire again because the buffer already has filetype=help set).
 vim.api.nvim_create_autocmd("FileType", {
-	group = vim.api.nvim_create_augroup("HelpFloat", {}),
+	group = help_float_group,
 	pattern = "help",
 	callback = function(ev)
-		local win = vim.fn.bufwinid(ev.buf)
-		if win == -1 then return end
-		if vim.api.nvim_win_get_config(win).relative ~= "" then return end
+		help_to_float(ev.buf)
+	end,
+})
 
-		local width = math.floor(vim.o.columns * 0.85)
-		local height = math.floor(vim.o.lines * 0.85)
-		vim.api.nvim_open_win(ev.buf, true, {
-			relative = "editor",
-			width = width,
-			height = height,
-			row = math.floor((vim.o.lines - height) / 2),
-			col = math.floor((vim.o.columns - width) / 2),
-			border = "rounded",
-			title = " Help ",
-			title_pos = "center",
-		})
-		pcall(vim.api.nvim_win_close, win, false)
+vim.api.nvim_create_autocmd("BufWinEnter", {
+	group = help_float_group,
+	callback = function(ev)
+		help_to_float(ev.buf)
 	end,
 })
 

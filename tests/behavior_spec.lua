@@ -58,6 +58,24 @@ describe("behavior", function()
             assert.are_not.equals("", cfg.relative, "help window should be floating (relative != '')")
             vim.cmd("close")
         end)
+
+        it("reopening an existing help buffer still floats (not a split)", function()
+            -- First open creates the help buffer and floats it.
+            vim.cmd("silent help help")
+            vim.cmd("redraw")
+            -- Close the float; the help buffer stays loaded in the buffer list.
+            vim.cmd("close")
+
+            -- Second open reuses the existing help buffer. FileType won't fire
+            -- again, so this previously landed in a plain split.
+            vim.cmd("silent help help")
+            vim.cmd("redraw")
+            local win = vim.api.nvim_get_current_win()
+            local cfg = vim.api.nvim_win_get_config(win)
+            assert.equals("help", vim.bo.buftype, "current buffer should be a help buffer")
+            assert.are_not.equals("", cfg.relative, "reopened help window should be floating (relative != '')")
+            vim.cmd("close")
+        end)
     end)
 
     describe("scroll centering", function()
