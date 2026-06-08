@@ -74,6 +74,15 @@ return {
 						require("lazy").load({ plugins = { "diffview.nvim" } })
 						require("diffview").open({ "-C" .. cwd, commit .. "^!" })
 					end,
+					-- Toggle the git_log preview between the full diff (git show, the
+					-- default) and a bare changed-files list (git show --name-status).
+					-- The flag lives on the picker instance so it resets every open;
+					-- preview:refresh nils the cached item to force a re-render (a plain
+					-- show_preview would no-op since the highlighted commit is unchanged).
+					git_log_toggle_files = function(picker)
+						picker._files_only = not picker._files_only
+						picker.preview:refresh(picker)
+					end,
 				},
 				sources = {
 					-- Rebase keys live only in the commit-log picker. <c-r> is a prefix
@@ -81,6 +90,19 @@ return {
 					-- timeout nor clashes with the global <c-r><c-w>/<c-r>% register
 					-- inserts, and <c-r>i avoids the <c-i>==<Tab> terminal collision.
 					git_log = {
+						-- Dispatch the preview on the per-picker _files_only flag (set by
+						-- the <M-l> git_log_toggle_files action). Default is snacks' own
+						-- git_show (full diff); the toggle swaps in a bare changed-files
+						-- list. preview.cmd runs in ctx.item.cwd, so both honour the
+						-- submodule-scoped log selected via the <c-g> switcher.
+						preview = function(ctx)
+							if ctx.picker._files_only then
+								return Snacks.picker.preview.cmd(
+									{ "git", "--no-pager", "show", "--name-status", "--oneline", ctx.item.commit },
+									ctx, { ft = "git" })
+							end
+							return Snacks.picker.preview.git_show(ctx)
+						end,
 						win = {
 							input = {
 								keys = {
@@ -88,6 +110,8 @@ return {
 									["<c-r>i"] = { "git_rebase_interactive", mode = { "n", "i" }, desc = "Interactive rebase from commit" },
 									-- <c-d> overrides list_scroll_down in the git_log picker only.
 									["<c-d>"] = { "diffview_open", mode = { "n", "i" }, desc = "Open commit in Diffview" },
+									-- <M-l> flips the preview between full diff and file list.
+									["<M-l>"] = { "git_log_toggle_files", mode = { "n", "i" }, desc = "Toggle preview: diff / file list" },
 								},
 							},
 						},
