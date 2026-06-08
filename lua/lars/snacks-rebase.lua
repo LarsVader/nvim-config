@@ -39,7 +39,12 @@ M.last_cwd = nil
 M.rebase_state_dir = nil
 
 -- "pick" is the implicit default, so marking pick just removes the mark.
-local ACTIONS = { edit = true, reword = true, squash = true, fixup = true, drop = true, pick = true }
+-- "split" isn't a git verb -- it expands to pick + exec reset + break (see
+-- apply_to_lines), stopping the rebase with the commit's changes unstaged so it
+-- can be re-committed in pieces.
+local ACTIONS = {
+    edit = true, reword = true, squash = true, fixup = true, drop = true, pick = true, split = true,
+}
 
 -- Per-action picker badge (text + highlight). Standard diagnostic groups so we
 -- never depend on a snacks-specific highlight existing.
@@ -49,6 +54,7 @@ local BADGE = {
     squash = { "squash", "DiagnosticHint" },
     fixup = { "fixup", "DiagnosticHint" },
     drop = { "drop", "DiagnosticError" },
+    split = { "split", "Special" },
 }
 -- Width of the badge column (longest label + a trailing space), so marked and
 -- unmarked rows stay aligned once any mark exists.
@@ -156,24 +162,27 @@ local function tag_action(hash, tags)
 end
 
 --- Rebuild a git-rebase-todo from `tags` (full hash -> action) and an optional
---- `order` (commit hashes, OLDEST first). The `pick` command lines are sorted
---- to match `order` (matched by hash prefix; commits absent from `order` keep
---- their original relative order) and have their keyword swapped per `tags`.
---- Comment/blank lines stay in their original slots. Because it only permutes
---- and re-keywords the lines git itself generated, the commit set is always
---- exactly what git expects. Pure -- the unit tests exercise this directly.
+--- `order` (commit hashes, OLDEST first). The `pick` command lines are sorted to
+--- match `order` (matched by hash prefix; commits absent from `order` keep their
+--- original relative order) and rewritten per `tags`: most actions just swap the
+--- keyword, but "split" expands to pick + `exec git reset HEAD~1` + `break` so
+--- the rebase stops with the commit's changes unstaged. Comment/blank lines are
+--- preserved as a trailing block (git emits them after the commands). Because it
+--- only permutes/expands the lines git generated, the commit set always matches
+--- what git expects. Pure -- the unit tests exercise this directly.
 ---@param lines string[]
 ---@param tags table<string, string>
 ---@param order? string[] desired commit order, oldest first
 ---@return string[] new_lines, integer applied, boolean reordered
 function M.apply_to_lines(lines, tags, order)
-    -- Collect the command (pick) lines and the file slots they occupy.
-    local slots, cmds = {}, {}
-    for i, line in ipairs(lines) do
+    -- Split command (pick) lines from everything else (blanks, comments).
+    local cmds, tail = {}, {}
+    for _, line in ipairs(lines) do
         local kw, hash = line:match("^(%a+)%s+([0-9a-fA-F]+)")
         if kw == "pick" or kw == "p" then
-            slots[#slots + 1] = i
-            cmds[#cmds + 1] = { orig = #slots, line = line, hash = hash:lower() }
+            cmds[#cmds + 1] = { orig = #cmds + 1, line = line, hash = hash:lower() }
+        else
+            tail[#tail + 1] = line
         end
     end
 
@@ -196,17 +205,26 @@ function M.apply_to_lines(lines, tags, order)
     end)
 
     local applied, reordered = 0, false
+    local out = {}
     for n, c in ipairs(cmds) do
         if c.orig ~= n then reordered = true end
         local action = tag_action(c.hash, tags)
-        if action then
-            c.line = action .. c.line:match("^%a+(.*)$")
+        if action == "split" then
+            -- pick, then a mixed reset: it unstages the commit's changes, and the
+            -- now-dirty tree makes git pause the rebase by itself (no `break`
+            -- needed -- a break would just force a second --continue). git prints
+            -- its standard "unstaged changes ... git rebase --continue" notice.
+            out[#out + 1] = c.line
+            out[#out + 1] = "exec git reset HEAD~1"
             applied = applied + 1
+        elseif action then
+            out[#out + 1] = action .. c.line:match("^%a+(.*)$")
+            applied = applied + 1
+        else
+            out[#out + 1] = c.line
         end
     end
-
-    local out = vim.deepcopy(lines)
-    for n, slot in ipairs(slots) do out[slot] = cmds[n].line end
+    vim.list_extend(out, tail)
     return out, applied, reordered
 end
 

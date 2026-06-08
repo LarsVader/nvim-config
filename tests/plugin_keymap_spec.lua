@@ -64,7 +64,7 @@ describe("plugin keymaps", function()
             for _, name in ipairs({
                 "git_rebase_mark_edit", "git_rebase_mark_reword", "git_rebase_mark_squash",
                 "git_rebase_mark_fixup", "git_rebase_mark_drop", "git_rebase_mark_pick",
-                "git_rebase_clear", "git_rebase_move_up", "git_rebase_move_down",
+                "git_rebase_mark_split", "git_rebase_clear", "git_rebase_move_up", "git_rebase_move_down",
             }) do
                 assert.is_function(picker.actions[name], name .. " action missing")
             end
@@ -78,6 +78,7 @@ describe("plugin keymaps", function()
             { lhs = "<c-r>s", action = "git_rebase_mark_squash" },
             { lhs = "<c-r>f", action = "git_rebase_mark_fixup" },
             { lhs = "<c-r>d", action = "git_rebase_mark_drop" },
+            { lhs = "<c-r>m", action = "git_rebase_mark_split" },
             { lhs = "<c-r>p", action = "git_rebase_mark_pick" },
             { lhs = "<c-r>x", action = "git_rebase_clear" },
             { lhs = "<c-k>", action = "git_rebase_move_up" },

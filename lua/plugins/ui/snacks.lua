@@ -48,6 +48,9 @@ return {
 						git_rebase_mark_squash = function(picker) require("lars.snacks-rebase").tag(picker, "squash") end,
 						git_rebase_mark_fixup = function(picker) require("lars.snacks-rebase").tag(picker, "fixup") end,
 						git_rebase_mark_drop = function(picker) require("lars.snacks-rebase").tag(picker, "drop") end,
+						-- "split" expands to pick + reset + break: the rebase stops with the
+						-- commit's changes unstaged so you can re-commit it in pieces.
+						git_rebase_mark_split = function(picker) require("lars.snacks-rebase").tag(picker, "split") end,
 						git_rebase_mark_pick = function(picker) require("lars.snacks-rebase").tag(picker, "pick") end,
 						git_rebase_clear = function(picker) require("lars.snacks-rebase").clear(picker) end,
 						-- Reorder commits in the picker (empty filter only). Permutes the
@@ -115,6 +118,7 @@ return {
 									["<c-r>s"] = { "git_rebase_mark_squash", mode = { "n", "i" }, desc = "Mark commit: squash" },
 									["<c-r>f"] = { "git_rebase_mark_fixup", mode = { "n", "i" }, desc = "Mark commit: fixup" },
 									["<c-r>d"] = { "git_rebase_mark_drop", mode = { "n", "i" }, desc = "Mark commit: drop" },
+									["<c-r>m"] = { "git_rebase_mark_split", mode = { "n", "i" }, desc = "Mark commit: split (mixed reset)" },
 									["<c-r>p"] = { "git_rebase_mark_pick", mode = { "n", "i" }, desc = "Mark commit: pick (clear one)" },
 									["<c-r>x"] = { "git_rebase_clear", mode = { "n", "i" }, desc = "Clear all rebase marks" },
 									-- Reorder the commit under the cursor (empty filter only). These

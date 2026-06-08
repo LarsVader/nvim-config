@@ -142,6 +142,29 @@ describe("snacks-rebase apply_to_lines", function()
         assert.equals(0, applied)
     end)
 
+    it("expands a split mark into pick + exec reset (the dirty tree stops git)", function()
+        local tags = { ["a1b2c3d0000000000000000000000000000000ab"] = "split" }
+        local out, applied = rb.apply_to_lines(todo(), tags)
+        assert.equals(1, applied)
+        assert.equals("pick a1b2c3d first commit", out[1])
+        assert.equals("exec git reset HEAD~1", out[2])
+        -- the other commits follow, then the comment block
+        assert.equals("pick d4e5f6a second commit", out[3])
+        assert.equals("pick 789abcd third commit", out[4])
+        assert.equals("", out[5])
+        assert.equals("# Rebase abc..def onto abc", out[6])
+    end)
+
+    it("splits in the reordered position", function()
+        local order = { "789abcd", "a1b2c3d", "d4e5f6a" } -- third, first, second
+        local tags = { ["a1b2c3d0000000000000000000000000000000ab"] = "split" }
+        local out = rb.apply_to_lines(todo(), tags, order)
+        assert.equals("pick 789abcd third commit", out[1])
+        assert.equals("pick a1b2c3d first commit", out[2])
+        assert.equals("exec git reset HEAD~1", out[3])
+        assert.equals("pick d4e5f6a second commit", out[4])
+    end)
+
     it("reports reordered=false when order matches the natural sequence", function()
         local order = { "a1b2c3d", "d4e5f6a", "789abcd" } -- oldest first, as-is
         local _, _, reordered = rb.apply_to_lines(todo(), {}, order)
