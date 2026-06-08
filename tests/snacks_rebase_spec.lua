@@ -75,4 +75,156 @@ describe("snacks git_log rebase actions", function()
     it("git_rebase_interactive is a function", function()
         assert.is_function(picker_opts().actions.git_rebase_interactive)
     end)
+
+    it("mark/clear actions are functions", function()
+        local actions = picker_opts().actions
+        for _, name in ipairs({
+            "git_rebase_mark_edit", "git_rebase_mark_reword", "git_rebase_mark_squash",
+            "git_rebase_mark_fixup", "git_rebase_mark_drop", "git_rebase_mark_pick",
+            "git_rebase_clear",
+        }) do
+            assert.is_function(actions[name], name .. " missing")
+        end
+    end)
+end)
+
+describe("snacks-rebase apply_to_lines", function()
+    local rb = require("lars.snacks-rebase")
+
+    -- A typical git-rebase-todo: pick lines (oldest first), then a comment block.
+    local function todo()
+        return {
+            "pick a1b2c3d first commit",
+            "pick d4e5f6a second commit",
+            "pick 789abcd third commit",
+            "",
+            "# Rebase abc..def onto abc",
+            "# p, pick <commit> = use commit",
+        }
+    end
+
+    it("swaps the keyword for matched commits, by abbrev-hash prefix", function()
+        -- full hashes whose prefixes match the abbreviated hashes in the todo
+        local tags = {
+            ["a1b2c3d0000000000000000000000000000000ab"] = "edit",
+            ["789abcd0000000000000000000000000000000ab"] = "squash",
+        }
+        local out, applied = rb.apply_to_lines(todo(), tags)
+        assert.equals(2, applied)
+        assert.equals("edit a1b2c3d first commit", out[1])
+        assert.equals("pick d4e5f6a second commit", out[2]) -- untouched
+        assert.equals("squash 789abcd third commit", out[3])
+    end)
+
+    it("preserves the hash and subject verbatim, only swapping the verb", function()
+        local tags = { ["d4e5f6a0000000000000000000000000000000ab"] = "drop" }
+        local out, applied = rb.apply_to_lines(todo(), tags)
+        assert.equals(1, applied)
+        assert.equals("drop d4e5f6a second commit", out[2])
+    end)
+
+    it("never rewrites comment or blank lines", function()
+        local tags = { ["a1b2c3d0000000000000000000000000000000ab"] = "edit" }
+        local out = rb.apply_to_lines(todo(), tags)
+        assert.equals("", out[4])
+        assert.equals("# Rebase abc..def onto abc", out[5])
+    end)
+
+    it("treats a 'pick' mark as a no-op (implicit default)", function()
+        local tags = { ["a1b2c3d0000000000000000000000000000000ab"] = "pick" }
+        local out, applied = rb.apply_to_lines(todo(), tags)
+        assert.equals(0, applied)
+        assert.equals("pick a1b2c3d first commit", out[1])
+    end)
+
+    it("ignores marks that match no todo line", function()
+        local tags = { ["ffffffffffffffffffffffffffffffffffffffff"] = "edit" }
+        local _, applied = rb.apply_to_lines(todo(), tags)
+        assert.equals(0, applied)
+    end)
+
+    it("reports reordered=false when order matches the natural sequence", function()
+        local order = { "a1b2c3d", "d4e5f6a", "789abcd" } -- oldest first, as-is
+        local _, _, reordered = rb.apply_to_lines(todo(), {}, order)
+        assert.is_false(reordered)
+    end)
+
+    it("permutes the pick lines to match the given order", function()
+        -- request reverse order (oldest-first): third, second, first
+        local order = { "789abcd", "d4e5f6a", "a1b2c3d" }
+        local out, applied, reordered = rb.apply_to_lines(todo(), {}, order)
+        assert.equals(0, applied)
+        assert.is_true(reordered)
+        assert.equals("pick 789abcd third commit", out[1])
+        assert.equals("pick d4e5f6a second commit", out[2])
+        assert.equals("pick a1b2c3d first commit", out[3])
+        -- comment block stays put
+        assert.equals("", out[4])
+        assert.equals("# Rebase abc..def onto abc", out[5])
+    end)
+
+    it("reorders and re-keywords together", function()
+        local order = { "789abcd", "a1b2c3d", "d4e5f6a" }
+        local tags = {
+            ["789abcd0000000000000000000000000000000ab"] = "edit",
+            ["d4e5f6a0000000000000000000000000000000ab"] = "drop",
+        }
+        local out, applied, reordered = rb.apply_to_lines(todo(), tags, order)
+        assert.equals(2, applied)
+        assert.is_true(reordered)
+        assert.equals("edit 789abcd third commit", out[1])
+        assert.equals("pick a1b2c3d first commit", out[2])
+        assert.equals("drop d4e5f6a second commit", out[3])
+    end)
+
+    it("keeps commits absent from order in their original relative position", function()
+        -- only pin the third commit to the front; the rest keep their order
+        local order = { "789abcd" }
+        local out, _, reordered = rb.apply_to_lines(todo(), {}, order)
+        assert.is_true(reordered)
+        assert.equals("pick 789abcd third commit", out[1])
+        assert.equals("pick a1b2c3d first commit", out[2])
+        assert.equals("pick d4e5f6a second commit", out[3])
+    end)
+end)
+
+describe("snacks-rebase badges", function()
+    local rb = require("lars.snacks-rebase")
+
+    before_each(function() rb.tags = {} end)
+    after_each(function() rb.tags = {} end)
+
+    it("has_marks / action_for match by abbreviated-hash prefix", function()
+        assert.is_false(rb.has_marks())
+        rb.tags["a1b2c3d0000000000000000000000000000000ab"] = "squash"
+        assert.is_true(rb.has_marks())
+        assert.equals("squash", rb.action_for("a1b2c3d"))
+        assert.equals("squash", rb.action_for("a1b2")) -- shorter prefix still matches
+        assert.is_nil(rb.action_for("deadbee"))
+        assert.is_nil(rb.action_for(nil))
+    end)
+
+    it("format prepends a badge only when a row is marked", function()
+        h.force_load_plugin("snacks.nvim")
+        local orig = Snacks.picker.format.git_log
+        Snacks.picker.format.git_log = function() return { { "ROW" } } end
+        local ok, err = pcall(function()
+            -- no marks -> stock row, unchanged
+            local out = rb.format({ commit = "a1b2c3d" }, {})
+            assert.equals(1, #out)
+            assert.equals("ROW", out[1][1])
+
+            -- marked -> badge segment prepended, text starts with the action
+            rb.tags["a1b2c3d0000000000000000000000000000000ab"] = "drop"
+            out = rb.format({ commit = "a1b2c3d" }, {})
+            assert.is_true(#out > 1)
+            assert.is_truthy(out[1][1]:match("^drop"))
+
+            -- marks exist but THIS row is unmarked -> blank padded badge (alignment)
+            out = rb.format({ commit = "fffffff" }, {})
+            assert.is_truthy(out[1][1]:match("^%s+$"))
+        end)
+        Snacks.picker.format.git_log = orig
+        assert.is_true(ok, tostring(err))
+    end)
 end)

@@ -49,9 +49,39 @@ describe("plugin keymaps", function()
                 "git_rebase_interactive action missing")
         end)
 
+        it("git_log_toggle_files action and preview function are wired", function()
+            local picker = snacks_picker_opts()
+            assert.is_function(picker.actions.git_log_toggle_files,
+                "git_log_toggle_files action missing")
+            local preview = vim.tbl_get(picker, "sources", "git_log", "preview")
+            assert.is_function(preview, "git_log preview function missing")
+            local format = vim.tbl_get(picker, "sources", "git_log", "format")
+            assert.is_function(format, "git_log format function missing")
+        end)
+
+        it("git_rebase mark/clear actions are picker functions", function()
+            local picker = snacks_picker_opts()
+            for _, name in ipairs({
+                "git_rebase_mark_edit", "git_rebase_mark_reword", "git_rebase_mark_squash",
+                "git_rebase_mark_fixup", "git_rebase_mark_drop", "git_rebase_mark_pick",
+                "git_rebase_clear", "git_rebase_move_up", "git_rebase_move_down",
+            }) do
+                assert.is_function(picker.actions[name], name .. " action missing")
+            end
+        end)
+
         local keymaps = {
             { lhs = "<c-r>r", action = "git_rebase" },
             { lhs = "<c-r>i", action = "git_rebase_interactive" },
+            { lhs = "<c-r>e", action = "git_rebase_mark_edit" },
+            { lhs = "<c-r>w", action = "git_rebase_mark_reword" },
+            { lhs = "<c-r>s", action = "git_rebase_mark_squash" },
+            { lhs = "<c-r>f", action = "git_rebase_mark_fixup" },
+            { lhs = "<c-r>d", action = "git_rebase_mark_drop" },
+            { lhs = "<c-r>p", action = "git_rebase_mark_pick" },
+            { lhs = "<c-r>x", action = "git_rebase_clear" },
+            { lhs = "<c-k>", action = "git_rebase_move_up" },
+            { lhs = "<c-j>", action = "git_rebase_move_down" },
             { lhs = "<c-d>", action = "diffview_open" },
             { lhs = "<M-l>", action = "git_log_toggle_files" },
         }

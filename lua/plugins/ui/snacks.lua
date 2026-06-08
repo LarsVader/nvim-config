@@ -32,36 +32,29 @@ return {
 							vim.cmd.checktime()
 						end, { cwd = cwd })
 					end,
-					git_rebase_interactive = function(picker, item)
-						if not (item and item.commit) then
-							return Snacks.notify.warn("No commit under cursor", { title = "Git Rebase" })
-						end
-						local commit, cwd = item.commit, item.cwd or picker:cwd()
-						picker:close()
-						-- Interactive rebase needs an editor for the todo list, so delegate
-						-- to Fugitive (loaded on :G), which wires GIT_SEQUENCE_EDITOR back
-						-- into nvim. Fugitive resolves the repo from the *current buffer*,
-						-- not the window cwd -- so an lcd is ignored when the log was scoped
-						-- to a submodule via the <c-g> switcher. Open the rebase in a fresh
-						-- tab whose [No Name] buffer pins no repo, with tcd set to the
-						-- picker's cwd, so Fugitive resolves the repo from that cwd.
-						-- <commit>^ makes the selected commit itself editable; the root
-						-- commit has no parent, so fall back to --root (rebase from the start).
-						vim.schedule(function()
-							local has_parent = vim.system(
-								{ "git", "-C", cwd, "rev-parse", "--verify", "--quiet", commit .. "^" }
-							):wait().code == 0
-							local range = has_parent and ("-i " .. commit .. "^") or "-i --root"
-							vim.cmd("tabnew")
-							vim.cmd("tcd " .. vim.fn.fnameescape(cwd))
-							local ok, err = pcall(vim.cmd, "G rebase " .. range)
-							if not ok then
-								vim.cmd("silent! tabclose")
-								Snacks.notify.error("Interactive rebase failed: " .. tostring(err),
-									{ title = "Git Rebase" })
-							end
-						end)
-					end,
+					-- Interactive rebase: optionally pre-mark commits first (the
+						-- git_rebase_mark_* actions below), then launch. The module
+						-- computes the base, opens Fugitive's rebase-todo in a fresh
+						-- tcd-scoped tab (so submodule-scoped logs hit the right repo),
+						-- and seeds the todo with any marks. See lua/lars/snacks-rebase.lua.
+						git_rebase_interactive = function(picker, item)
+							require("lars.snacks-rebase").launch(picker, item)
+						end,
+						-- Mark the selected/cursor commit(s) with a rebase action; the
+						-- marks are applied to the todo when git_rebase_interactive runs.
+						-- "pick" clears a mark; git_rebase_clear drops them all.
+						git_rebase_mark_edit = function(picker) require("lars.snacks-rebase").tag(picker, "edit") end,
+						git_rebase_mark_reword = function(picker) require("lars.snacks-rebase").tag(picker, "reword") end,
+						git_rebase_mark_squash = function(picker) require("lars.snacks-rebase").tag(picker, "squash") end,
+						git_rebase_mark_fixup = function(picker) require("lars.snacks-rebase").tag(picker, "fixup") end,
+						git_rebase_mark_drop = function(picker) require("lars.snacks-rebase").tag(picker, "drop") end,
+						git_rebase_mark_pick = function(picker) require("lars.snacks-rebase").tag(picker, "pick") end,
+						git_rebase_clear = function(picker) require("lars.snacks-rebase").clear(picker) end,
+						-- Reorder commits in the picker (empty filter only). Permutes the
+						-- finder's items in place; the order is captured at launch and the
+						-- todo is seeded in that sequence. See lua/lars/snacks-rebase.lua.
+						git_rebase_move_up = function(picker) require("lars.snacks-rebase").move(picker, -1) end,
+						git_rebase_move_down = function(picker) require("lars.snacks-rebase").move(picker, 1) end,
 					-- Open the selected commit in Diffview (commit vs its parent).
 					diffview_open = function(picker, item)
 						if not (item and item.commit) then
@@ -90,6 +83,12 @@ return {
 					-- timeout nor clashes with the global <c-r><c-w>/<c-r>% register
 					-- inserts, and <c-r>i avoids the <c-i>==<Tab> terminal collision.
 					git_log = {
+						-- Prefix each row with a rebase-mark badge (edit/squash/...) once
+						-- any commit is marked via <c-r>{e,w,s,f,d}; stock git_log rows
+						-- otherwise. See lua/lars/snacks-rebase.lua.
+						format = function(item, picker)
+							return require("lars.snacks-rebase").format(item, picker)
+						end,
 						-- Dispatch the preview on the per-picker _files_only flag (set by
 						-- the <M-l> git_log_toggle_files action). Default is snacks' own
 						-- git_show (full diff); the toggle swaps in a bare changed-files
@@ -107,7 +106,22 @@ return {
 							input = {
 								keys = {
 									["<c-r>r"] = { "git_rebase", mode = { "n", "i" }, desc = "Rebase branch onto commit" },
-									["<c-r>i"] = { "git_rebase_interactive", mode = { "n", "i" }, desc = "Interactive rebase from commit" },
+									["<c-r>i"] = { "git_rebase_interactive", mode = { "n", "i" }, desc = "Interactive rebase (apply marks)" },
+									-- <c-r>{e,w,s,f,d,p} mark the cursor/selected commit(s) for the
+									-- next interactive rebase; <c-r>x clears all marks. Reordering
+									-- happens in the seeded todo buffer that <c-r>i opens.
+									["<c-r>e"] = { "git_rebase_mark_edit", mode = { "n", "i" }, desc = "Mark commit: edit" },
+									["<c-r>w"] = { "git_rebase_mark_reword", mode = { "n", "i" }, desc = "Mark commit: reword" },
+									["<c-r>s"] = { "git_rebase_mark_squash", mode = { "n", "i" }, desc = "Mark commit: squash" },
+									["<c-r>f"] = { "git_rebase_mark_fixup", mode = { "n", "i" }, desc = "Mark commit: fixup" },
+									["<c-r>d"] = { "git_rebase_mark_drop", mode = { "n", "i" }, desc = "Mark commit: drop" },
+									["<c-r>p"] = { "git_rebase_mark_pick", mode = { "n", "i" }, desc = "Mark commit: pick (clear one)" },
+									["<c-r>x"] = { "git_rebase_clear", mode = { "n", "i" }, desc = "Clear all rebase marks" },
+									-- Reorder the commit under the cursor (empty filter only). These
+									-- override the global <c-j>/<c-k> list nav inside git_log only;
+									-- use j/k or <Tab>/<S-Tab> to navigate here.
+									["<c-k>"] = { "git_rebase_move_up", mode = { "n", "i" }, desc = "Reorder: move commit up" },
+									["<c-j>"] = { "git_rebase_move_down", mode = { "n", "i" }, desc = "Reorder: move commit down" },
 									-- <c-d> overrides list_scroll_down in the git_log picker only.
 									["<c-d>"] = { "diffview_open", mode = { "n", "i" }, desc = "Open commit in Diffview" },
 									-- <M-l> flips the preview between full diff and file list.
