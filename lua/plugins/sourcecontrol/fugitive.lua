@@ -1,9 +1,32 @@
+-- Holds the previous commit's message between <leader>ga (soft-reset amend) and
+-- the recommit, so plain `cc` re-fills it automatically -- no retyping, no
+-- `-c ORIG_HEAD`. Set by <leader>ga, consumed by the GitAmendPrefill autocmd.
+local pending_amend_msg = nil
+
 return {
 	{
 		'tpope/vim-fugitive',
 		dependencies = { 'tpope/vim-rhubarb', },
 		cmd = 'G',
 		config = function()
+			-- Pre-fill the next commit message buffer with the message saved by
+			-- <leader>ga, but only when it has no message yet (so unrelated commits
+			-- are untouched). Runs synchronously so the commit float's is_amending
+			-- check reads the filled-in text.
+			vim.api.nvim_create_autocmd('FileType', {
+				pattern = 'gitcommit',
+				group = vim.api.nvim_create_augroup('GitAmendPrefill', { clear = true }),
+				callback = function(args)
+					if not pending_amend_msg then return end
+					local msg = pending_amend_msg
+					pending_amend_msg = nil
+					local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+					local new = require('lars.git_amend').merge_message(msg, lines)
+					if new then
+						vim.api.nvim_buf_set_lines(args.buf, 0, -1, false, new)
+					end
+				end,
+			})
 			-- When a commit editor opens, show it in a 3-panel float layout:
 			-- top-left = commit message, bottom-left = recent commits, right = staged diff
 			-- (bufhidden is reset after placing in float so fugitive's :wq commit flow works)
@@ -532,6 +555,35 @@ return {
 			end, desc='Git status' },
 			{ '<leader>gb', ':G blame<CR>', desc='Git blame' },
 			{ '<leader>gc', ':G commit<CR>', desc='Git commit' },
+			{ '<leader>ga', function()
+				-- Amend the last commit, including REMOVING changes from it (which
+				-- `git commit --amend` can't do -- it only adds the staged diff). A
+				-- soft reset un-commits but keeps the commit's contents STAGED, so in
+				-- the status float you unstage what to drop and stage what to add,
+				-- then recommit. The message is preserved in ORIG_HEAD.
+				local dir = vim.fn.expand('%:p:h')
+				if dir == '' then dir = vim.fn.getcwd() end
+				if vim.system({ 'git', '-C', dir, 'rev-parse', '--verify', '--quiet', 'HEAD~1' }):wait().code ~= 0 then
+					return vim.notify('No parent commit to amend onto', vim.log.levels.WARN, { title = 'Git Amend' })
+				end
+				-- Save the message (before the reset) so `cc` re-fills it; the
+				-- GitAmendPrefill autocmd consumes it on the next commit buffer.
+				local msg = vim.system({ 'git', '-C', dir, 'log', '-1', '--format=%B' }):wait()
+				pending_amend_msg = vim.split((msg.stdout or ''):gsub('%s+$', ''), '\n', { plain = true })
+				local res = vim.system({ 'git', '-C', dir, 'reset', '--soft', 'HEAD~1' }):wait()
+				if res.code ~= 0 then
+					pending_amend_msg = nil
+					return vim.notify('Soft reset failed: ' .. (res.stderr or ''), vim.log.levels.ERROR, { title = 'Git Amend' })
+				end
+				vim.notify(
+					'Last commit uncommitted (its changes are staged). Unstage to drop / stage to add, '
+					.. 'then `cc` to recommit -- the message is kept automatically.',
+					vim.log.levels.INFO, { title = 'Git Amend' })
+				-- Open the same status float as <leader>gs.
+				vim.schedule(function()
+					vim.api.nvim_feedkeys((vim.g.mapleader or ' ') .. 'gs', 'm', false)
+				end)
+			end, desc = 'Amend last commit (soft reset + status)' },
 			{ '<leader>gd', ':G diff<CR>:only<CR>', desc='Git diff' },
 			{ '<leader>gm', ':Gdiffsplit<CR>', desc='Git diffsplit' },
 			-- other commands like log i use telescope instead

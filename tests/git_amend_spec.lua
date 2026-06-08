@@ -72,6 +72,37 @@ describe("git_amend helper", function()
         end)
     end)
 
+    describe("merge_message", function()
+        local M
+        before_each(function()
+            package.loaded['lars.git_amend'] = nil
+            M = require('lars.git_amend')
+        end)
+
+        it("prepends the saved message above an empty commit template", function()
+            local saved = { 'fix: the thing', '', 'body' }
+            local buf = { '', '# Please enter the commit message', '# On branch main' }
+            local out = M.merge_message(saved, buf)
+            assert.same({
+                'fix: the thing', '', 'body',
+                '', -- separator
+                '', '# Please enter the commit message', '# On branch main',
+            }, out)
+        end)
+
+        it("returns nil when the buffer already has a message (won't clobber)", function()
+            local saved = { 'old message' }
+            local buf = { 'a message in progress', '', '# comment' }
+            assert.is_nil(M.merge_message(saved, buf))
+        end)
+
+        it("treats a comments-only buffer as empty", function()
+            local saved = { 'subject' }
+            local out = M.merge_message(saved, { '# only', '# comments' })
+            assert.equals('subject', out[1])
+        end)
+    end)
+
     describe("get_diff_lines", function()
         local M
         local repo

@@ -41,6 +41,24 @@ function M.is_amending(commit_lines, head_message_lines)
     return true
 end
 
+--- Merge a saved commit message into a fresh commit buffer for the soft-reset
+--- amend flow (<leader>ga): prepend `saved` above the buffer's template, but
+--- only when the buffer has no message yet (so an unrelated commit that already
+--- carries text is left alone). Returns the new lines, or nil to leave as-is.
+---@param saved string[] the previous commit's message lines
+---@param lines string[] current commit-buffer lines (template + comments)
+---@return string[]|nil
+function M.merge_message(saved, lines)
+    for _, l in ipairs(lines) do
+        if l ~= '' and not l:match('^#') then return nil end -- already has a message
+    end
+    local new = {}
+    for _, l in ipairs(saved) do new[#new + 1] = l end
+    new[#new + 1] = ''
+    for _, l in ipairs(lines) do new[#new + 1] = l end
+    return new
+end
+
 --- Returns the diff lines to show in the commit-float right pane.
 --- For amends: parent-of-HEAD .. staged (cumulative amended diff).
 --- Falls back to the empty-tree comparison when HEAD has no parent
