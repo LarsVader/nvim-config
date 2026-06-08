@@ -25,7 +25,16 @@ return {
 			},
 			sections = {
 				lualine_a = {'mode'},
-				lualine_b = {'branch', 'diff', 'diagnostics'},
+				lualine_b = {
+					'branch',
+					-- "⟳ rebase 2/4" while a rebase is in progress, hidden otherwise.
+					{
+						function() return require("lars.snacks-rebase").lualine() end,
+						color = { fg = '#ffb86c' }, -- dracula orange
+					},
+					'diff',
+					'diagnostics',
+				},
 				lualine_c = {{
 					'filename',
 					path = 1,
