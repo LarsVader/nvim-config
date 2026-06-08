@@ -235,6 +235,11 @@ return {
 				desc = 'Image: refresh placements (clear stuck + re-attach current buffer)',
 			},
 			{ "<leader>fl", function() require("lars.snacks-submodule").open("git_log") end,      desc = "Git Log (submodule-aware)" },
+			{ "<leader>fi", function()
+				-- Show the remaining steps of an in-progress rebase (action + commit
+				-- + git show preview). <leader>fl still shows the full log.
+				require("lars.snacks-rebase").open_todo()
+			end, desc = "Rebase TODO (in-progress steps)" },
 			{ "<leader>fb", function() require("lars.snacks-submodule").open("git_branches") end, desc = "Git Log (submodule-aware)" },
 			{ "<leader>fs", function() require("lars.snacks-submodule").open("git_status") end, desc = "Git Status (submodule-aware)" },
 			{ "<leader>fc", function() Snacks.picker.git_log_file() end,                          desc = "Git Log (submodule-aware)" },

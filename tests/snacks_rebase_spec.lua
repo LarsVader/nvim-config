@@ -1,15 +1,10 @@
--- Reproduces the "interactive rebase runs in the wrong repo after switching
--- submodule" bug. The snacks git_log picker can be scoped to a submodule cwd via
--- the <c-g> switcher, but Fugitive (which drives the interactive rebase) resolves
--- the repository from the CURRENT BUFFER, not the window's cwd. So an `lcd` into
--- the submodule does NOT redirect Fugitive -- it keeps operating on the parent
--- repo, and `git rebase -i <hash>^` fails with "invalid upstream" because <hash>
--- only exists in the submodule.
---
--- The fix (git_rebase_interactive in lua/plugins/ui/snacks.lua) opens the rebase
--- in a fresh tab whose [No Name] buffer pins no repo, with `tcd` set to the
--- picker's cwd, so Fugitive resolves the repo from that cwd. These tests pin a
--- buffer to a parent repo and assert that resolution mechanism.
+-- The interactive rebase must run in the picker's repo even when that differs
+-- from the current buffer's repo (e.g. a submodule-scoped log while a parent-repo
+-- file is open). Rather than juggling a tab/tcd to redirect Fugitive, launch()
+-- passes the picker's git dir straight to fugitive#Command (which accepts an
+-- explicit dir as its last argument). This test pins the current buffer to a
+-- PARENT repo, then drives a scoped command against a SUBMODULE and asserts it
+-- lands in the submodule -- the exact cross-repo case the old tab worked around.
 local h = dofile(vim.fn.stdpath("config") .. "/tests/helpers.lua")
 
 describe("snacks git_log interactive rebase repo scoping", function()
@@ -47,18 +42,22 @@ describe("snacks git_log interactive rebase repo scoping", function()
         if root then vim.fn.delete(root, "rf") end
     end)
 
-    local function gitdir() return vim.fs.normalize(vim.fn.FugitiveGitDir()) end
-
-    it("lcd into the submodule does NOT redirect Fugitive (the bug)", function()
-        vim.cmd("lcd " .. vim.fn.fnameescape(sub))
-        -- Still the parent repo -- this is exactly why the old code failed.
-        assert.are.equal(vim.fs.normalize(main .. "/.git"), gitdir())
+    it("Fugitive resolves the current buffer to the PARENT repo", function()
+        -- Sanity: without explicit scoping, Fugitive would target the parent.
+        assert.are.equal(vim.fs.normalize(main .. "/.git"), vim.fs.normalize(vim.fn.FugitiveGitDir()))
     end)
 
-    it("fresh tab + tcd scopes Fugitive to the submodule (the fix)", function()
-        vim.cmd("tabnew")
-        vim.cmd("tcd " .. vim.fn.fnameescape(sub))
-        assert.are.equal(vim.fs.normalize(sub .. "/.git"), gitdir())
+    it("fugitive#Command with the submodule git dir acts on the submodule", function()
+        -- This is how launch() scopes: pass the target repo's git dir as the
+        -- last arg, no tab/tcd, current buffer still pinned to the parent.
+        local gitdir = vim.trim(git(sub, "rev-parse", "--absolute-git-dir").stdout)
+        local ok = pcall(vim.fn["fugitive#Command"], 0, 0, 0, 0, "", "tag scope-probe", gitdir)
+        assert.is_true(ok, "fugitive#Command errored")
+        vim.wait(2000, function() return vim.trim(git(sub, "tag").stdout) ~= "" end)
+        -- Tag landed in the submodule...
+        assert.are.equal("scope-probe", vim.trim(git(sub, "tag").stdout))
+        -- ...and NOT in the parent, despite the current buffer being parent-scoped.
+        assert.are.equal("", vim.trim(git(main, "tag").stdout))
     end)
 end)
 
@@ -226,5 +225,110 @@ describe("snacks-rebase badges", function()
         end)
         Snacks.picker.format.git_log = orig
         assert.is_true(ok, tostring(err))
+    end)
+end)
+
+describe("snacks-rebase in-progress todo view", function()
+    local rb = require("lars.snacks-rebase")
+
+    it("read_todo keeps commit steps, normalizes short verbs, drops the rest", function()
+        local dir = vim.fs.normalize(vim.fn.tempname())
+        vim.fn.mkdir(dir, "p")
+        vim.fn.writefile({
+            "pick a1b2c3d first commit",
+            "e d4e5f6a second commit", -- short verb
+            "squash 789abcd third commit",
+            "exec make test", -- no hash -> dropped
+            "",
+            "# Rebase abc..def onto abc",
+        }, dir .. "/git-rebase-todo")
+
+        local ok, err = pcall(function()
+            local steps = rb.read_todo(dir)
+            assert.equals(3, #steps)
+            assert.same({ status = "todo", action = "pick", commit = "a1b2c3d", subject = "first commit" }, steps[1])
+            assert.equals("edit", steps[2].action) -- e -> edit
+            assert.equals("squash", steps[3].action)
+        end)
+        vim.fn.delete(dir, "rf")
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("read_todo returns empty for a missing todo file", function()
+        assert.same({}, rb.read_todo(vim.fs.normalize(vim.fn.tempname())))
+    end)
+
+    it("read_steps shows done + current stop even when nothing remains", function()
+        local dir = vim.fs.normalize(vim.fn.tempname())
+        vim.fn.mkdir(dir, "p")
+        -- Paused on an `edit` of the newest commit: two done, last = stop, no todo.
+        vim.fn.writefile({ "pick aaaa1111 first", "edit bbbb2222 second" }, dir .. "/done")
+        vim.fn.writefile({ "", "# Rebase ..." }, dir .. "/git-rebase-todo")
+        local ok, err = pcall(function()
+            local steps = rb.read_steps(dir)
+            assert.equals(2, #steps)
+            assert.equals("done", steps[1].status)
+            assert.equals("stop", steps[2].status) -- last done = where it's paused
+            assert.equals("edit", steps[2].action)
+            -- remaining-only view would have been empty here:
+            assert.equals(0, #rb.read_todo(dir))
+        end)
+        vim.fn.delete(dir, "rf")
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("read_steps marks remaining steps as todo", function()
+        local dir = vim.fs.normalize(vim.fn.tempname())
+        vim.fn.mkdir(dir, "p")
+        vim.fn.writefile({ "pick aaaa1111 first" }, dir .. "/done")
+        vim.fn.writefile({ "pick cccc3333 third", "squash dddd4444 fourth" }, dir .. "/git-rebase-todo")
+        local ok, err = pcall(function()
+            local steps = rb.read_steps(dir)
+            assert.equals(3, #steps)
+            assert.equals("stop", steps[1].status)
+            assert.equals("todo", steps[2].status)
+            assert.equals("todo", steps[3].status)
+        end)
+        vim.fn.delete(dir, "rf")
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("progress_for reads git's step counters as <cur>/<total>", function()
+        local dir = vim.fs.normalize(vim.fn.tempname())
+        vim.fn.mkdir(dir, "p")
+        vim.fn.writefile({ "2" }, dir .. "/msgnum")
+        vim.fn.writefile({ "4" }, dir .. "/end")
+        local ok, err = pcall(function()
+            assert.equals("2/4", rb.progress_for(dir))
+        end)
+        vim.fn.delete(dir, "rf")
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("progress_for falls back to am-based next/last counters", function()
+        local dir = vim.fs.normalize(vim.fn.tempname())
+        vim.fn.mkdir(dir, "p")
+        vim.fn.writefile({ "1" }, dir .. "/next")
+        vim.fn.writefile({ "3" }, dir .. "/last")
+        local ok, err = pcall(function()
+            assert.equals("1/3", rb.progress_for(dir))
+        end)
+        vim.fn.delete(dir, "rf")
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("progress_for is nil for a missing/empty state dir", function()
+        assert.is_nil(rb.progress_for(nil))
+        assert.is_nil(rb.progress_for(vim.fs.normalize(vim.fn.tempname())))
+    end)
+
+    it("in_progress is false in a fresh non-rebasing repo", function()
+        local root = vim.fs.normalize(vim.fn.tempname())
+        vim.fn.mkdir(root, "p")
+        vim.fn.system({ "git", "-C", root, "init", "-q" })
+        local ok, active = pcall(rb.in_progress, root)
+        vim.fn.delete(root, "rf")
+        assert.is_true(ok, tostring(active))
+        assert.is_false(active)
     end)
 end)

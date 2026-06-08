@@ -28,6 +28,16 @@ M.tags = {}
 ---@type table<string, string>|nil
 M.pending = nil
 
+--- Repo cwd of the most recent launch, so the in-progress rebase can be found
+--- again from anywhere (the rebase no longer runs in a dedicated tab/cwd).
+---@type string|nil
+M.last_cwd = nil
+
+--- rebase-merge state dir of the most recent launch -- the lualine progress
+--- fast path reads it directly (no subprocess).
+---@type string|nil
+M.rebase_state_dir = nil
+
 -- "pick" is the implicit default, so marking pick just removes the mark.
 local ACTIONS = { edit = true, reword = true, squash = true, fixup = true, drop = true, pick = true }
 
@@ -43,6 +53,19 @@ local BADGE = {
 -- Width of the badge column (longest label + a trailing space), so marked and
 -- unmarked rows stay aligned once any mark exists.
 local BADGE_W = 7
+
+-- git-rebase-todo short verbs -> full names, for the in-progress todo view.
+local VERB = {
+    p = "pick", e = "edit", r = "reword", s = "squash",
+    f = "fixup", d = "drop", x = "exec", b = "break",
+}
+
+-- Status glyph + highlight for each step in the in-progress rebase view.
+local STATUS = {
+    done = { "✓", "Comment" },          -- already applied
+    stop = { "▶", "DiagnosticWarn" },   -- where the rebase is paused (current)
+    todo = { "·", "DiagnosticHint" },   -- still to do
+}
 
 --- Any marks pending?
 ---@return boolean
@@ -288,6 +311,7 @@ function M.launch(picker, item)
         if c then order[#order + 1] = c end
     end
 
+    M.last_cwd = cwd
     picker:close()
     M.pending = { tags = tags_in_range, order = order }
     M.tags = {}
@@ -295,25 +319,250 @@ function M.launch(picker, item)
         Snacks.notify.warn(("Ignored %d mark(s) not on HEAD's history"):format(dropped), { title = "Git Rebase" })
     end
 
-    -- Interactive rebase needs an editor for the todo list. Delegate to Fugitive
-    -- (loaded on :G), which wires GIT_SEQUENCE_EDITOR/GIT_EDITOR back into nvim.
-    -- Fugitive resolves the repo from the *current buffer*, not the window cwd --
-    -- so open the rebase in a fresh tab whose [No Name] buffer pins no repo, with
-    -- tcd set to the picker's cwd, so Fugitive resolves the repo from that cwd.
-    -- <commit>^ makes the base commit itself editable; the root commit has no
-    -- parent, so fall back to --root (rebase from the very first commit).
+    -- Interactive rebase needs an editor for the todo list, so delegate to
+    -- Fugitive (it wires GIT_SEQUENCE_EDITOR/GIT_EDITOR back into nvim). Fugitive
+    -- normally resolves the repo from the current buffer, but fugitive#Command
+    -- takes an explicit git dir as its last argument -- so we scope to the
+    -- picker's repo directly, with NO tab/tcd and no change to the current
+    -- buffer. Our gitrebase autocmd seeds + auto-confirms the todo. <commit>^
+    -- makes the base commit editable; the root commit has no parent, so fall
+    -- back to --root (rebase from the very first commit).
     vim.schedule(function()
+        require("lazy").load({ plugins = { "vim-fugitive" } })
         local has_parent = git(cwd, "rev-parse", "--verify", "--quiet", oldest .. "^").code == 0
         local range = has_parent and ("-i " .. oldest .. "^") or "-i --root"
-        vim.cmd("tabnew")
-        vim.cmd("tcd " .. vim.fn.fnameescape(cwd))
-        local ok, err = pcall(vim.cmd, "G rebase " .. range)
+        local gitdir = vim.trim((git(cwd, "rev-parse", "--absolute-git-dir").stdout or ""))
+        if gitdir == "" then
+            M.pending = nil
+            return Snacks.notify.error("Could not resolve the git dir", { title = "Git Rebase" })
+        end
+        -- Remember the state dir for the cheap lualine progress check (no
+        -- subprocess on the fast path). Cleared implicitly when it stops existing.
+        M.rebase_state_dir = vim.fs.normalize(gitdir .. "/rebase-merge")
+        -- args: (line1, line2, range, bang, mods, arg, dir)
+        local ok, after = pcall(vim.fn["fugitive#Command"], 0, 0, 0, 0, "", "rebase " .. range, gitdir)
         if not ok then
             M.pending = nil
-            vim.cmd("silent! tabclose")
-            Snacks.notify.error("Interactive rebase failed: " .. tostring(err), { title = "Git Rebase" })
+            return Snacks.notify.error("Interactive rebase failed: " .. tostring(after), { title = "Git Rebase" })
         end
+        -- fugitive#Command returns an Ex "after" string the :Git wrapper runs.
+        if type(after) == "string" and after ~= "" then pcall(vim.cmd, after) end
     end)
+end
+
+-- The state dir of an in-progress rebase for `cwd`'s repo, or nil. Interactive
+-- rebases use rebase-merge, plain ones rebase-apply. --git-path always returns a
+-- path (rebase or not), so existence of the dir is the actual test.
+local function rebase_dir(cwd)
+    for _, kind in ipairs({ "rebase-merge", "rebase-apply" }) do
+        local res = git(cwd, "rev-parse", "--git-path", kind)
+        if res.code == 0 then
+            local path = (res.stdout or ""):gsub("%s+$", "")
+            if path ~= "" then
+                -- --git-path returns a path relative to cwd unless already absolute.
+                if not (path:match("^%a:[/\\]") or path:match("^/")) then
+                    path = cwd .. "/" .. path
+                end
+                path = vim.fs.normalize(path)
+                if vim.fn.isdirectory(path) == 1 then return path end
+            end
+        end
+    end
+    return nil
+end
+
+-- All directories worth probing for an in-progress rebase: the repo we last
+-- launched one in, every open file's directory, and every window/tab cwd. Broad
+-- on purpose -- the rebase no longer runs in a dedicated cwd, so it can be found
+-- from wherever any related buffer or window happens to be.
+local function candidate_dirs()
+    local seen, out = {}, {}
+    local function add(c)
+        if c and c ~= "" and not seen[c] then
+            seen[c] = true
+            out[#out + 1] = c
+        end
+    end
+    add(M.last_cwd)
+    add(vim.fn.getcwd())
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_loaded(b) then
+            local name = vim.api.nvim_buf_get_name(b)
+            if name ~= "" and not name:match("^%w+://") then add(vim.fs.dirname(name)) end
+        end
+    end
+    for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
+        for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+            local ok, wcwd = pcall(vim.fn.getcwd, vim.api.nvim_win_get_number(win), vim.api.nvim_tabpage_get_number(tab))
+            if ok then add(wcwd) end
+        end
+    end
+    return out
+end
+
+--- Is a rebase in progress? With no `cwd`, probes a broad set of candidate repos
+--- (see candidate_dirs). Returns the state dir and the repo it belongs to.
+---@param cwd string|nil
+---@return boolean active, string|nil dir, string|nil repo_cwd
+function M.in_progress(cwd)
+    local candidates = cwd and { cwd } or candidate_dirs()
+    for _, c in ipairs(candidates) do
+        local dir = rebase_dir(c)
+        if dir then return true, dir, c end
+    end
+    return false, nil, nil
+end
+
+-- Parse commit-bearing steps from a rebase state file, tagging each with status.
+-- exec/break/label/merge lines carry no hash and simply don't match.
+local function parse_steps(file, status, into)
+    if vim.fn.filereadable(file) ~= 1 then return end
+    for _, line in ipairs(vim.fn.readfile(file)) do
+        local verb, hash, subject = line:match("^(%a+)%s+(%x%x%x%x+)%s+(.*)$")
+        if verb then
+            into[#into + 1] = { status = status, action = VERB[verb] or verb, commit = hash, subject = subject }
+        end
+    end
+end
+
+--- Parse the REMAINING steps from a rebase-merge dir's git-rebase-todo.
+---@param dir string
+---@return { action: string, commit: string, subject: string }[]
+function M.read_todo(dir)
+    local items = {}
+    parse_steps(dir .. "/git-rebase-todo", "todo", items)
+    return items
+end
+
+--- Parse the full rebase picture: completed steps from `done` (the last of which
+--- is the current stop), then the remaining steps from git-rebase-todo. When the
+--- rebase is paused on an `edit` of the newest commit, git-rebase-todo is empty
+--- and only `done` carries the (stopped) commit -- which is exactly the one the
+--- user wants to see, so a remaining-only view would wrongly look empty.
+---@param dir string
+---@return { status: string, action: string, commit: string, subject: string }[]
+function M.read_steps(dir)
+    local steps = {}
+    parse_steps(dir .. "/done", "done", steps)
+    if #steps > 0 then steps[#steps].status = "stop" end -- last done = current
+    parse_steps(dir .. "/git-rebase-todo", "todo", steps)
+    return steps
+end
+
+--- Entry point for <leader>fi: show the in-progress rebase's steps, or report
+--- that none is running.
+function M.open_todo()
+    local active, dir, repo = M.in_progress()
+    if active then
+        return M.show_todo(repo, dir)
+    end
+    Snacks.notify("No rebase in progress", { title = "Git Rebase" })
+end
+
+local function read_num(path)
+    if vim.fn.filereadable(path) ~= 1 then return nil end
+    return tonumber((vim.fn.readfile(path)[1] or ""):match("%d+"))
+end
+
+--- "<current>/<total>" progress for a rebase state dir, or nil. Reads git's own
+--- step counters (msgnum/end for interactive, next/last for am-based) -- plain
+--- file reads, no subprocess.
+---@param dir string|nil rebase-merge (or rebase-apply) state dir
+---@return string|nil
+function M.progress_for(dir)
+    if not (dir and vim.fn.isdirectory(dir) == 1) then return nil end
+    local cur = read_num(dir .. "/msgnum") or read_num(dir .. "/next")
+    local total = read_num(dir .. "/end") or read_num(dir .. "/last")
+    return (cur and total) and string.format("%d/%d", cur, total) or nil
+end
+
+-- Throttle the progress lookup so the lualine component never spawns more than
+-- one git subprocess per second (the fast path -- a launched rebase's cached
+-- state dir -- spawns none).
+local prog_cache = { t = -1e9, val = nil }
+
+--- Cheap, throttled rebase progress ("2/4") for the statusline, or nil.
+---@return string|nil
+function M.progress()
+    local now = vim.loop.now()
+    if now - prog_cache.t < 900 then return prog_cache.val end
+    prog_cache.t = now
+    local dir = M.rebase_state_dir
+    if not (dir and vim.fn.isdirectory(dir) == 1) then
+        -- No cached dir (e.g. after a restart): resolve from the current buffer's
+        -- repo -- the right scope for a per-window statusline. One subprocess,
+        -- throttled by prog_cache.
+        local bufname = vim.api.nvim_buf_get_name(0)
+        local base = (bufname ~= "" and not bufname:match("^%w+://")) and vim.fs.dirname(bufname) or vim.fn.getcwd()
+        dir = rebase_dir(base)
+    end
+    prog_cache.val = M.progress_for(dir)
+    return prog_cache.val
+end
+
+--- Lualine component: "⟳ rebase 2/4" while a rebase is in progress, else "".
+---@return string
+function M.lualine()
+    local p = M.progress()
+    return p and ("⟳ rebase " .. p) or ""
+end
+
+--- Open a picker showing the in-progress rebase: completed steps, the current
+--- stop, and the remaining steps -- each with its action and a `git show`
+--- preview. Used by <leader>fi while rebasing.
+---@param cwd string
+---@param dir string rebase-merge state directory
+function M.show_todo(cwd, dir)
+    local steps = M.read_steps(dir)
+    if #steps == 0 then
+        return Snacks.notify("No rebase steps found", { title = "Git Rebase" })
+    end
+
+    -- The current stop (an `edit` pause, or a conflict) isn't finished from the
+    -- user's point of view, so it counts as remaining alongside the todo steps.
+    local left = 0
+    for _, s in ipairs(steps) do
+        if s.status == "todo" or s.status == "stop" then left = left + 1 end
+    end
+
+    Snacks.picker.pick({
+        source = "rebase_todo",
+        title = ("Rebase: %d step(s), %d left"):format(#steps, left),
+        finder = function()
+            -- Reverse to newest/upcoming-first so it reads like the git_log picker
+            -- (read_steps yields oldest->newest execution order).
+            local ret = {}
+            for i = #steps, 1, -1 do
+                local s = steps[i]
+                ret[#ret + 1] = {
+                    text = (#steps - i + 1) .. " " .. s.action .. " " .. s.commit .. " " .. s.subject,
+                    idx = #ret + 1,
+                    status = s.status,
+                    action = s.action,
+                    commit = s.commit,
+                    cwd = cwd,
+                    subject = s.subject,
+                }
+            end
+            return ret
+        end,
+        format = function(item)
+            local align = Snacks.picker.util.align
+            local st = STATUS[item.status] or STATUS.todo
+            local dim = item.status == "done"
+            local label = (BADGE[item.action] or { item.action })[1]
+            local action_hl = dim and "Comment" or (BADGE[item.action] or { nil, "SnacksPickerGitCommit" })[2]
+            return {
+                { st[1] .. " ", st[2] },
+                { align(label, BADGE_W), action_hl },
+                { " " },
+                { align(item.commit, 8, { truncate = true }), dim and "Comment" or "SnacksPickerGitCommit" },
+                { " " },
+                { item.subject or "", dim and "Comment" or nil },
+            }
+        end,
+        preview = "git_show",
+    })
 end
 
 -- Apply the pending plan (marks + order) to the native rebase-todo buffer the
@@ -328,14 +577,31 @@ vim.api.nvim_create_autocmd("FileType", {
         M.pending = nil
         local lines = vim.api.nvim_buf_get_lines(ev.buf, 0, -1, false)
         local new_lines, applied, reordered = M.apply_to_lines(lines, plan.tags or {}, plan.order)
-        if applied > 0 or reordered then
-            vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, new_lines)
-            local parts = {}
-            if reordered then parts[#parts + 1] = "reordered" end
-            if applied > 0 then parts[#parts + 1] = applied .. " action(s)" end
-            vim.notify(("Rebase todo: %s -- review and :wq"):format(table.concat(parts, ", ")),
-                vim.log.levels.INFO, { title = "Git Rebase" })
-        end
+        -- Nothing prepared (bare <c-r>i) -> leave the todo open for manual edit.
+        if applied == 0 and not reordered then return end
+        vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, new_lines)
+        local parts = {}
+        if reordered then parts[#parts + 1] = "reordered" end
+        if applied > 0 then parts[#parts + 1] = applied .. " action(s)" end
+        vim.notify(("Rebase: %s -- running"):format(table.concat(parts, ", ")),
+            vim.log.levels.INFO, { title = "Git Rebase" })
+        -- Skip the review step: confirm the seeded todo immediately (same as the
+        -- user pressing :wq), so the rebase runs straight away. reword/squash
+        -- message buffers (gitcommit, not gitrebase) are untouched and still open
+        -- for editing; an `edit` stop just pauses the rebase as usual.
+        local buf = ev.buf
+        vim.schedule(function()
+            if not vim.api.nvim_buf_is_valid(buf) then return end
+            local win = vim.fn.bufwinid(buf)
+            if win ~= -1 then
+                vim.api.nvim_set_current_win(win)
+                pcall(vim.cmd, "silent write")
+                pcall(vim.cmd, "quit")
+            else
+                pcall(function() vim.api.nvim_buf_call(buf, function() vim.cmd("silent write") end) end)
+                pcall(vim.cmd, "silent! bwipeout " .. buf)
+            end
+        end)
     end,
 })
 
