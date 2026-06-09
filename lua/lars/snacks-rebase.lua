@@ -228,6 +228,20 @@ function M.apply_to_lines(lines, tags, order)
     return out, applied, reordered
 end
 
+--- Commits whose display index differs from their original index. Pure.
+---@param orig string[] original commit order (hashes)
+---@param disp string[] current display order (hashes)
+---@return string[] moved commit hashes
+function M.moved_commits(orig, disp)
+    local orig_pos = {}
+    for i, c in ipairs(orig) do orig_pos[c] = i end
+    local moved = {}
+    for i, c in ipairs(disp) do
+        if orig_pos[c] and orig_pos[c] ~= i then moved[#moved + 1] = c end
+    end
+    return moved
+end
+
 --- Move the commit under the cursor one row up (dir -1) or down (dir 1) by
 --- permuting the displayed `list.items` in place. Only valid with an empty
 --- filter: with no pattern the list is unsorted (no score ranking, no topk), so
@@ -240,6 +254,15 @@ function M.move(picker, dir)
     if not list then return end
     if picker.matcher and not picker.matcher:empty() then
         return Snacks.notify.warn("Clear the filter to reorder commits", { title = "Git Rebase" })
+    end
+    -- Snapshot the pristine order on the first move so launch() can widen the
+    -- rebase base to every commit that actually moved (not just the cursor's) --
+    -- otherwise reordering a commit past OLDER ones leaves them out of range and
+    -- the rebase looks like a no-op (the Fugitive todo then opens instead).
+    if not picker._rebase_orig then
+        local snap = {}
+        for k, it in ipairs(list.items) do snap[k] = it.commit end
+        picker._rebase_orig = snap
     end
     local i = list.cursor
     -- Reverse layouts invert the index direction of "up"/"down" on screen.
@@ -311,6 +334,18 @@ function M.launch(picker, item)
             tags_in_range[full] = action
         else
             dropped = dropped + 1
+        end
+    end
+    -- Widen the base to cover commits the user reordered, so a pure reorder
+    -- always spans every commit it touched (see move()'s snapshot).
+    if picker._rebase_orig then
+        local disp = {}
+        for _, it in ipairs((picker.list and picker.list.items) or {}) do
+            disp[#disp + 1] = it.commit
+        end
+        for _, c in ipairs(M.moved_commits(picker._rebase_orig, disp)) do
+            local full = M.resolve_full(cwd, c)
+            if full and M.is_ancestor(cwd, full, "HEAD") then set[full] = true end
         end
     end
     local oldest = M.oldest(cwd, vim.tbl_keys(set))

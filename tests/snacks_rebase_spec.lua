@@ -155,6 +155,21 @@ describe("snacks-rebase apply_to_lines", function()
         assert.equals("# Rebase abc..def onto abc", out[6])
     end)
 
+    it("moved_commits reports only commits whose position changed", function()
+        local orig = { "aaa", "bbb", "ccc", "ddd" }
+        -- ccc moved to the front; bbb/ddd shifted but aaa stayed put relative...
+        local disp = { "ccc", "aaa", "bbb", "ddd" }
+        local moved = rb.moved_commits(orig, disp)
+        table.sort(moved)
+        -- aaa: 1->2 (moved), bbb: 2->3 (moved), ccc: 3->1 (moved), ddd: 4->4 (same)
+        assert.same({ "aaa", "bbb", "ccc" }, moved)
+    end)
+
+    it("moved_commits is empty when nothing changed", function()
+        local same = { "a", "b", "c" }
+        assert.same({}, rb.moved_commits(same, { "a", "b", "c" }))
+    end)
+
     it("splits in the reordered position", function()
         local order = { "789abcd", "a1b2c3d", "d4e5f6a" } -- third, first, second
         local tags = { ["a1b2c3d0000000000000000000000000000000ab"] = "split" }
