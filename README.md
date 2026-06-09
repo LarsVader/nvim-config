@@ -141,10 +141,67 @@ Cmdline completion is also active: `/` and `?` complete from buffer, `:` complet
 
 ## Git
 
-> `lua/plugins/sourcecontrol/fugitive.lua`
-> Powered by vim-fugitive. `<leader>gb` shows commit messages inline in the blame view (via fugitive-blame-ext).
-> For commit history and branch management, use Telescope (`<leader>fl`, `<leader>fb`).
-> Inside the commit-log picker (`<leader>fl`): `<c-r>r` rebases the current branch onto the commit under the cursor, and `<c-r>i` starts an interactive rebase from that commit (`git rebase -i <hash>^`, opened via fugitive in a fresh tab so the todo list is editable in nvim). Both honour the picker's submodule scope -- including after switching submodule with `<c-g>` -- and `<c-r>i` falls back to `--root` when the selected commit is the repo's first commit.
+> `lua/plugins/sourcecontrol/fugitive.lua` -- Fugitive integration, commit/amend floats
+> `lua/plugins/ui/snacks.lua` + `lua/lars/snacks-rebase.lua` -- commit-log picker and the interactive-rebase workflow
+> `lua/lars/snacks-submodule.lua` -- submodule-aware picker wrapper
+
+Powered by vim-fugitive, with commit history and a full interactive-rebase workflow driven from the [snacks](https://github.com/folke/snacks.nvim) commit-log picker.
+
+### Fugitive
+
+| Key | Action |
+|-----|--------|
+| `<leader>gs` | Git **status** (custom float; `<c-g>` switches submodule, `d` opens diff / 4-way merge on conflicts) |
+| `<leader>gb` | Git **blame** (commit messages inline via fugitive-blame-ext) |
+| `<leader>gc` | Git **commit** (3-panel float: message / recent commits / staged diff) |
+| `<leader>ga` | **Amend** the last commit -- add *and* remove changes (see below) |
+| `<leader>gd` | Git **diff** (fullscreen) |
+| `<leader>gm` | Git **diffsplit** |
+
+**Amend last commit (`<leader>ga`)** -- `git commit --amend` can only *add* staged changes; it can't drop something already in the commit. So `<leader>ga` soft-resets the last commit, bringing its contents back **staged**, and opens the status float. Unstage what to drop / stage what to add, then press `cc` to recommit -- the original message is re-filled **automatically** (no `-c ORIG_HEAD` to type).
+
+### Commit-log picker (`<leader>fl`)
+
+> Submodule-aware: opens instantly, `<c-g>` re-scopes the log to a submodule (discovered lazily).
+
+| Key | Action |
+|-----|--------|
+| `<M-l>` | Toggle the preview between the full diff and a bare changed-files list (`git show --name-status`) |
+| `<c-d>` | Open the commit in Diffview (commit vs parent) |
+| `<c-r>r` | Rebase the current branch **onto** the commit under the cursor |
+| `<c-g>` | Switch which submodule's log is shown |
+
+Other git pickers: `<leader>fi` (rebase status -- see below), `<leader>fb` (branches), `<leader>fs` (status), `<leader>fc` (current file's log), `<leader>fB` (open commit in browser).
+
+### Interactive rebase -- prepare in the picker, run on `<c-r>i`
+
+Mark commits in the log, optionally reorder them, then `<c-r>i` runs the rebase with your plan already applied -- **no todo buffer to hand-edit**. Marks render as a coloured badge on the row; act on the cursor commit or all multi-selected commits.
+
+| Key | Mark / action |
+|-----|---------------|
+| `<c-r>e` | **edit** -- pause on the commit |
+| `<c-r>w` | **reword** -- edit its message |
+| `<c-r>s` | **squash** -- meld into the previous commit |
+| `<c-r>f` | **fixup** -- like squash, discard message |
+| `<c-r>d` | **drop** -- remove the commit |
+| `<c-r>m` | **split** -- pause with the commit's changes unstaged, to re-commit in pieces |
+| `<c-r>p` | **pick** -- clear one mark |
+| `<c-r>x` | Clear **all** marks |
+| `<c-k>` / `<c-j>` | Move the commit **up** / **down** (reorder; empty filter only) |
+| `<c-r>i` | **Run** -- apply the marks + order and start the rebase |
+
+- Reordering permutes the picker rows in place (newest-first, like the log); the final order is captured when you run.
+- With no marks and no reorder, `<c-r>i` opens the normal todo buffer for manual editing instead.
+- The rebase is scoped to the picker's repo (incl. submodules) via Fugitive's git-dir argument -- **no tab, no `tcd`**, and your current buffer is untouched. Falls back to `--root` when the base is the first commit.
+- **Split** (`<c-r>m`): the rebase pauses with the commit's changes back in the working tree (unstaged). Stage + commit the pieces (`<leader>hs` on hunks, then `:G commit`, repeat), then `:G rebase --continue`. git prints its standard "unstaged changes ... rebase --continue" notice -- that's the intended pause, not an error.
+
+### Rebase in progress
+
+| Key | Action |
+|-----|--------|
+| `<leader>fi` | Show the in-progress rebase's steps -- done (✓), the current stop (▶), and remaining (·), each with a `git show` preview. `<leader>fl` still shows the full log. |
+
+While a rebase is running the status line shows **`⟳ rebase 2/4`** (from git's own `msgnum`/`end` counters), advancing as you `--continue` and vanishing when it finishes.
 
 ### Diffview -- Diff and File History
 
@@ -311,6 +368,9 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 | `behavior_spec.lua` | 3 | Feedkeys behavioral tests (yank, quickfix, scroll) |
 | `plugin_smoke_spec.lua` | 24 | Plugin load + API smoke tests |
 | `dispatch_notify_spec.lua` | -- | Dispatch/notify-based test coverage |
+| `snacks_rebase_spec.lua` | 27 | Interactive-rebase workflow: repo scoping, todo seed/reorder/split, moved-commit detection, mark badges, in-progress detection + step parsing, lualine progress |
+| `snacks_submodule_spec.lua` | 18 | Submodule-aware picker wrapper |
+| `git_amend_spec.lua` | 11 | Commit-float amend diff + soft-reset message pre-fill |
 
 **LSP integration tests** (separate runner -- needs event loop, ~60s per server):
 
@@ -385,5 +445,5 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | [nvim-coverage](https://github.com/andythigpen/nvim-coverage) | Code coverage gutter signs |
 | [alpha-nvim](https://github.com/goolord/alpha-nvim) | Dashboard / start screen |
 | [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) | Visual markdown rendering (headings, lists, tables, etc.) |
-| [snacks.nvim](https://github.com/folke/snacks.nvim) | Utility collection by folke. Currently enabled module: `image` (inline image rendering via Kitty graphics protocol). On Windows requires **WezTerm nightly** (`winget install wez.wezterm.nightly`) -- the 20240203 stable release has incomplete protocol support and renders nothing. Also requires ImageMagick (`ImageMagick.ImageMagick` winget package -- NOT `ImageMagick.Q16-HDRI`, which is MSIX-sandboxed and not detectable by `vim.fn.executable`). |
+| [snacks.nvim](https://github.com/folke/snacks.nvim) | Utility collection by folke. Enabled modules: `picker` (git log/status/branch pickers + the interactive-rebase workflow, see [Git](#git)), `notifier`, `input`, `scroll`, and `image` (inline image rendering via Kitty graphics protocol). **Image on Windows** requires **WezTerm nightly** (`winget install wez.wezterm.nightly`) -- the 20240203 stable release has incomplete protocol support and renders nothing. Also requires ImageMagick (`ImageMagick.ImageMagick` winget package -- NOT `ImageMagick.Q16-HDRI`, which is MSIX-sandboxed and not detectable by `vim.fn.executable`). |
 | [smear-cursor.nvim](https://github.com/sphamba/smear-cursor.nvim) | Animated smear/trail effect on cursor movement. |
