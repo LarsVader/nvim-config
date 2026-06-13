@@ -220,6 +220,51 @@ describe("plugin keymaps", function()
                 assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
             end)
         end
+
+        -- The smart-Tab REPL completion keymaps are registered by a
+        -- FileType autocmd in nvim-dap's config, buffer-local to the
+        -- dap-repl filetype. Force-load dap so config() runs, then
+        -- spin up a dap-repl buffer and assert the maps landed on it
+        -- (and only it — must not clobber <Tab> globally).
+        describe("repl smart-tab completion", function()
+            local function find_buf_map(buf, mode, lhs)
+                for _, km in ipairs(vim.api.nvim_buf_get_keymap(buf, mode)) do
+                    if km.lhs == lhs then
+                        return km
+                    end
+                end
+                return nil
+            end
+
+            it("registers <Tab>/<S-Tab> buffer-local in dap-repl", function()
+                h.force_load_plugin("nvim-dap")
+                local buf = vim.api.nvim_create_buf(false, true)
+                vim.api.nvim_buf_call(buf, function()
+                    vim.bo[buf].filetype = "dap-repl"
+                end)
+                local tab = find_buf_map(buf, "i", "<Tab>")
+                local stab = find_buf_map(buf, "i", "<S-Tab>")
+                vim.api.nvim_buf_delete(buf, { force = true })
+                assert.is_not_nil(tab, "<Tab> not registered for dap-repl buffer")
+                assert.are.equal(1, tab.expr, "<Tab> should be an expr keymap")
+                assert.is_not_nil(stab, "<S-Tab> not registered for dap-repl buffer")
+                assert.are.equal(1, stab.expr, "<S-Tab> should be an expr keymap")
+            end)
+
+            it("does not clobber the global <Tab> with the dap-repl map", function()
+                h.force_load_plugin("nvim-dap")
+                -- Neovim 0.11+ ships a built-in global insert-mode <Tab>
+                -- (vim.snippet.jump), so we can't assert <Tab> is absent.
+                -- The real invariant: dap's smart-Tab stays buffer-local and
+                -- never replaces the global map with its expr "DAP REPL
+                -- omni-complete" handler.
+                local m = vim.fn.maparg("<Tab>", "i", false, true)
+                if m and next(m) ~= nil then
+                    assert.are_not.equal("DAP REPL omni-complete", m.desc,
+                        "dap-repl <Tab> leaked into the global insert-mode map")
+                end
+            end)
+        end)
     end)
 
     describe("dap-ui", function()

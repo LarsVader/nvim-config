@@ -101,3 +101,42 @@ describe("dap_exception_picker._extract_from_file", function()
 		assert.are.same({}, got)
 	end)
 end)
+
+-- Covers commit(): the value->on_pick resolution shared by the
+-- snacks picker's <CR> confirm handler. Sentinel-free paths only
+-- (the '__custom__' sentinel calls vim.fn.input, which blocks).
+describe("dap_exception_picker._commit", function()
+	it("passes plain type values straight through (REPLACE)",
+		function()
+			local got
+			picker._commit(
+				{ "System.IO.IOException", "MyApp.FooException" },
+				function(types) got = types end)
+			assert.are.same(
+				{ "System.IO.IOException", "MyApp.FooException" },
+				got)
+		end)
+
+	it("'__clear__' sentinel commits an empty array (CLEAR)",
+		function()
+			local got
+			picker._commit({ "__clear__" },
+				function(types) got = types end)
+			assert.are.same({}, got)
+		end)
+
+	it("'__clear__' wins even when mixed with real picks",
+		function()
+			local got
+			picker._commit(
+				{ "System.Exception", "__clear__" },
+				function(types) got = types end)
+			assert.are.same({}, got)
+		end)
+
+	it("does NOT call on_pick when nothing was picked", function()
+		local called = false
+		picker._commit({}, function() called = true end)
+		assert.is_false(called)
+	end)
+end)

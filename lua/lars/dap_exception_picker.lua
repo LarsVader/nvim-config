@@ -1,4 +1,4 @@
--- Telescope-based picker for CLR exception breakpoints.
+-- Snacks-based picker for CLR exception breakpoints.
 --
 -- Lists curated BCL exception types plus project-local
 -- types discovered via async ripgrep (`class \w+Exception`).
@@ -14,7 +14,7 @@
 -- items including currently-stored ones.
 --
 -- Discovery is asynchronous (vim.system + ripgrep) and the
--- result is cached in-memory per cwd. <C-r> inside the picker
+-- result is cached in-memory per cwd. <C-x> inside the picker
 -- forces a re-scan and reopens the picker.
 --
 -- The picker only collects type names; persisting and
@@ -146,17 +146,47 @@ end
 -- Forward decl so refresh can call back into open().
 local open
 
--- Open a telescope picker over the merged items. on_pick is
+-- Commit the chosen values (an array of item `value`s) through
+-- on_pick, resolving the sentinels. on_pick is called with:
+--   * a non-empty array of fully-qualified type strings
+--     (REPLACE the stored state with these), or
+--   * an empty array (CLEAR the stored state).
+-- It is NOT called when nothing was picked.
+local function commit(values, on_pick)
+	if #values == 0 then return end
+	-- Clear sentinel wins if anywhere in picks.
+	for _, v in ipairs(values) do
+		if v == "__clear__" then
+			on_pick({})
+			return
+		end
+	end
+	-- Resolve Add-custom sentinel.
+	local final = {}
+	for _, v in ipairs(values) do
+		if v == "__custom__" then
+			local t = vim.fn.input(
+				"Custom CLR exception type: ", "System.")
+			if t and t ~= "" then
+				table.insert(final, t)
+			end
+		else
+			table.insert(final, v)
+		end
+	end
+	if #final > 0 then on_pick(final) end
+end
+
+-- Open a snacks picker over the merged items. on_pick is
 -- called with:
 --   * a non-empty array of fully-qualified type strings
 --     (REPLACE the stored state with these), or
 --   * an empty array (CLEAR the stored state).
 -- It is NOT called when the user cancels (esc, no marks).
 local function open_picker(curated, custom, currently_set, on_pick)
-	local ok_t, pickers = pcall(require, "telescope.pickers")
-	if not ok_t then
+	if not (Snacks and Snacks.picker) then
 		vim.notify(
-			"telescope not available — "
+			"snacks picker not available — "
 				.. "falling back to single free-text input",
 			vim.log.levels.WARN
 		)
@@ -165,75 +195,47 @@ local function open_picker(curated, custom, currently_set, on_pick)
 		if t and t ~= "" then on_pick({ t }) end
 		return
 	end
-	local finders = require("telescope.finders")
-	local conf = require("telescope.config").values
-	local actions = require("telescope.actions")
-	local action_state = require("telescope.actions.state")
 
 	local items = build_items(curated, custom, currently_set)
+	local snacks_items = {}
+	for i, it in ipairs(items) do
+		table.insert(snacks_items, {
+			idx = i,
+			-- Match/filter on the type name; sentinels keep
+			-- their internal value (harmless, they sit on top).
+			text = it.value,
+			value = it.value,
+			display = it.display,
+		})
+	end
 
-	pickers.new({}, {
-		prompt_title =
-			"CLR Exception breakpoints — [*] = currently "
-				.. "stored. <C-t> mark, <CR> REPLACE with "
-				.. "marks, <C-r> rescan",
-		finder = finders.new_table({
-			results = items,
-			entry_maker = function(it)
-				return {
-					value = it.value,
-					display = it.display,
-					ordinal = it.display,
-				}
-			end,
-		}),
-		sorter = conf.generic_sorter({}),
-		attach_mappings = function(prompt_bufnr, map)
-			actions.select_default:replace(function()
-				local picker =
-					action_state.get_current_picker(prompt_bufnr)
-				local sels = picker:get_multi_selection()
-				local values = {}
-				if #sels > 0 then
-					for _, s in ipairs(sels) do
-						table.insert(values, s.value)
-					end
-				else
-					local entry =
-						action_state.get_selected_entry()
-					if entry then
-						table.insert(values, entry.value)
-					end
+	Snacks.picker.pick({
+		title =
+			"CLR Exception breakpoints — [*] = stored. "
+				.. "<C-t> mark, <CR> REPLACE with marks, "
+				.. "<C-x> rescan",
+		items = snacks_items,
+		layout = { preview = false },
+		format = function(item)
+			return { { item.display } }
+		end,
+		-- <CR>: REPLACE the stored state with the marked items
+		-- (or the item under the cursor when nothing is marked).
+		confirm = function(picker)
+			local sels = picker:selected({ fallback = true })
+			picker:close()
+			local values = {}
+			for _, s in ipairs(sels) do
+				if s and s.value then
+					table.insert(values, s.value)
 				end
-				actions.close(prompt_bufnr)
-				if #values == 0 then return end
-				-- Clear sentinel wins if anywhere in picks.
-				for _, v in ipairs(values) do
-					if v == "__clear__" then
-						on_pick({})
-						return
-					end
-				end
-				-- Resolve Add-custom sentinel.
-				local final = {}
-				for _, v in ipairs(values) do
-					if v == "__custom__" then
-						local t = vim.fn.input(
-							"Custom CLR exception type: ",
-							"System."
-						)
-						if t and t ~= "" then
-							table.insert(final, t)
-						end
-					else
-						table.insert(final, v)
-					end
-				end
-				if #final > 0 then on_pick(final) end
-			end)
-			-- <C-r>: force re-scan and reopen.
-			local refresh = function()
-				actions.close(prompt_bufnr)
+			end
+			commit(values, on_pick)
+		end,
+		actions = {
+			-- <C-x>: force re-scan and reopen.
+			rescan = function(picker)
+				picker:close()
 				local cwd = vim.fn.getcwd()
 				vim.notify(
 					"Rescanning project for "
@@ -244,12 +246,20 @@ local function open_picker(curated, custom, currently_set, on_pick)
 				discover(cwd, function(_)
 					open(currently_set, on_pick)
 				end)
-			end
-			map("i", "<C-r>", refresh)
-			map("n", "<C-r>", refresh)
-			return true
-		end,
-	}):find()
+			end,
+		},
+		win = {
+			input = {
+				keys = {
+					["<c-x>"] = {
+						"rescan",
+						mode = { "n", "i" },
+						desc = "Rescan project for exceptions",
+					},
+				},
+			},
+		},
+	})
 end
 
 -- Public entry point. currently_set is the array of type
@@ -281,5 +291,6 @@ end
 
 M._extract_from_file = extract_from_file
 M._build_items = build_items
+M._commit = commit
 
 return M

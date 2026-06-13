@@ -651,7 +651,7 @@ return {
 			end
 
 			-- VS-style "break when these CLR types are thrown".
-			-- Opens a telescope multi-select picker over the
+			-- Opens a snacks multi-select picker over the
 			-- curated BCL list plus project-local exception
 			-- types discovered async via ripgrep.
 			--
@@ -669,7 +669,15 @@ return {
 			-- replacing commas with spaces and splitting on
 			-- whitespace into a set of fully qualified type
 			-- names — at runtime, a thrown exception breaks if
-			-- its type is in that set. Capability-gated.
+			-- its type is in that set.
+			--
+			-- Two adapter capabilities must hold before sending:
+			--   1. supportsExceptionFilterOptions (DAP 1.43+)
+			--   2. an 'all' entry in exceptionBreakpointFilters
+			-- netcoredbg has both. Other adapters (codelldb's
+			-- cpp_throw/cpp_catch, mixdbg, etc.) lack one or
+			-- the other and we bail with an info notice
+			-- instead of sending an invalid filterId.
 			local function apply_exception_filter_options(sess)
 				local types = exc_state.get()
 				if #types == 0 then return end
@@ -680,6 +688,24 @@ return {
 							.. 'filterOptions — stored CLR '
 							.. 'type breakpoints not '
 							.. 'applied',
+						vim.log.levels.INFO)
+					return
+				end
+				local adv = sess.capabilities
+					.exceptionBreakpointFilters or {}
+				local has_all = false
+				for _, f in ipairs(adv) do
+					if f.filter == 'all' then
+						has_all = true
+						break
+					end
+				end
+				if not has_all then
+					vim.notify(
+						"Adapter does not advertise the "
+							.. "'all' exception filter — "
+							.. "stored CLR type breakpoints "
+							.. "not applied",
 						vim.log.levels.INFO)
 					return
 				end
@@ -765,6 +791,64 @@ return {
 					dapui.open({ layout = 2 })
 				end
 			end
+
+			-- In the nvim-dap REPL, make <Tab> trigger omni-completion.
+			-- nvim-dap sets the REPL buffer's `omnifunc` to its DAP
+			-- completions request, so <C-x><C-o> normally completes
+			-- locals/members. This wires the standard smart-Tab
+			-- pattern, buffer-local to the dap-repl filetype:
+			--   * popup visible → <C-n>/<C-p> cycle the menu
+			--   * col 0 / preceding whitespace → literal <Tab> (indent)
+			--   * otherwise → <C-x><C-o> omni-completion
+			-- Typing "." also auto-triggers member completion (mixdbg
+			-- reports "." as a completionTriggerCharacter, but nvim-dap
+			-- doesn't act on that itself — this wires it up).
+			vim.api.nvim_create_autocmd("FileType", {
+				group = vim.api.nvim_create_augroup(
+					"DapReplTabComplete", {}),
+				pattern = "dap-repl",
+				callback = function(ev)
+					vim.keymap.set("i", "<Tab>", function()
+						if vim.fn.pumvisible() == 1 then
+							return "<C-n>"
+						end
+						local col = vim.fn.col(".") - 1
+						if col == 0
+							or vim.fn.getline("."):sub(col, col)
+								:match("%s") then
+							return "<Tab>"
+						end
+						return "<C-x><C-o>"
+					end, {
+						buffer = ev.buf,
+						expr = true,
+						replace_keycodes = true,
+						desc = "DAP REPL omni-complete",
+					})
+					vim.keymap.set("i", "<S-Tab>", function()
+						return vim.fn.pumvisible() == 1
+							and "<C-p>" or "<S-Tab>"
+					end, {
+						buffer = ev.buf,
+						expr = true,
+						replace_keycodes = true,
+						desc = "DAP REPL completion prev",
+					})
+					-- Auto-trigger member completion when "." is typed:
+					-- accept any open popup (<C-y>), insert the dot, then
+					-- fire omni-completion for the new path segment.
+					vim.keymap.set("i", ".", function()
+						local lead = vim.fn.pumvisible() == 1
+							and "<C-y>." or "."
+						return lead .. "<C-x><C-o>"
+					end, {
+						buffer = ev.buf,
+						expr = true,
+						replace_keycodes = true,
+						desc = "DAP REPL complete after .",
+					})
+				end,
+			})
 
 			vim.keymap.set({'n', 'v'}, '<Leader>dh', function()
 				require('dap.ui.widgets').hover()
