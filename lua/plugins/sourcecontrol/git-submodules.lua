@@ -383,155 +383,150 @@ local function get_all_submodules_with_status(callback)
 end
 
 local function submodule_commit_picker()
-    local pickers = require("telescope.pickers")
-    local finders = require("telescope.finders")
-    local previewers = require("telescope.previewers")
-    local conf = require("telescope.config").values
-    local actions = require("telescope.actions")
-    local action_state = require("telescope.actions.state")
-
-    local function make_entry_maker()
-        return function(entry)
-            local prefix = entry.dirty and "" or "  "
-            local main = prefix .. entry.name .. entry.summary
-            local branch_part = "  " .. entry.branch
-            local full = main .. branch_part
-            return {
-                value = entry,
-                display = function()
-                    return full, { { { #main, #full }, "TelescopeResultsComment" } }
-                end,
-                ordinal = entry.name,
-            }
-        end
+    if not (Snacks and Snacks.picker) then
+        vim.notify("snacks picker not available", vim.log.levels.ERROR)
+        return
     end
 
-    -- Open picker immediately with empty finder, refresh when data arrives
-    local picker_obj = pickers.new({}, {
-        prompt_title = "Submodule Commit: loading...",
-        finder = finders.new_table({ results = {} }),
-        sorter = conf.generic_sorter({}),
-        previewer = previewers.new_buffer_previewer({
-            title = "Submodule Diff",
-            define_preview = function(self, entry)
-                if self._preview_job then
-                    self._preview_job:kill()
-                    self._preview_job = nil
-                end
-
-                local bufnr = self.state.bufnr
-                local name = entry.value.name
-
-                if not entry.value.dirty then
-                    if vim.api.nvim_buf_is_valid(bufnr) then
-                        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "(no changes)" })
-                    end
-                    return
-                end
-
-                if vim.api.nvim_buf_is_valid(bufnr) then
-                    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading..." })
-                end
-
-                self._preview_job = vim.system(
-                    { "git", "-C", name, "diff", "HEAD" },
-                    { text = true },
-                    function(result)
-                        vim.schedule(function()
-                            if not vim.api.nvim_buf_is_valid(bufnr) then return end
-                            local lines
-                            if result.code ~= 0 or not result.stdout or result.stdout == "" then
-                                -- Fall back to status for untracked-only changes
-                                local status = vim.fn.systemlist({ "git", "-C", name, "status", "--short" })
-                                lines = #status > 0 and status or { "(no diff output)" }
-                            else
-                                lines = vim.split(result.stdout, "\n", { trimempty = true })
-                            end
-                            vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-                            vim.bo[bufnr].filetype = "diff"
-                        end)
-                    end
-                )
-            end,
-        }),
-        attach_mappings = function(prompt_bufnr)
-            -- Block multi-select toggle on clean submodules
-            -- Use vim.schedule to override AFTER telescope sets up its default mappings
-            vim.schedule(function()
-                if not vim.api.nvim_buf_is_valid(prompt_bufnr) then return end
-                vim.keymap.set({ "i", "n" }, "<C-t>", function()
-                    local entry = action_state.get_selected_entry()
-                    if entry and not entry.value.dirty then
-                        vim.notify("Cannot select clean submodule: " .. entry.value.name, vim.log.levels.WARN)
-                        return
-                    end
-                    actions.toggle_selection(prompt_bufnr)
-                    actions.move_selection_worse(prompt_bufnr)
-                end, { buffer = prompt_bufnr })
-            end)
-
-            actions.select_default:replace(function()
-                local picker = action_state.get_current_picker(prompt_bufnr)
-                local selections = picker:get_multi_selection()
-                -- If no multi-selection, use the current entry
-                if #selections == 0 then
-                    local entry = action_state.get_selected_entry()
-                    if entry then
-                        if not entry.value.dirty then
-                            vim.notify("Cannot select clean submodule: " .. entry.value.name, vim.log.levels.WARN)
-                            return
-                        end
-                        selections = { entry }
-                    end
-                end
-                actions.close(prompt_bufnr)
-
-                if #selections == 0 then
-                    vim.notify("No submodules selected", vim.log.levels.WARN)
-                    return
-                end
-
-                local names = {}
-                for _, sel in ipairs(selections) do
-                    table.insert(names, sel.value.name)
-                end
-
-                open_commit_float(names)
-            end)
-            return true
-        end,
-    })
-    picker_obj:find()
-
+    -- Discovery is async; open the picker only once we have the
+    -- submodule list (snacks has no telescope-style live refresh).
     get_all_submodules_with_status(function(subs)
         if #subs == 0 then
-            pcall(function()
-                if picker_obj.prompt_bufnr and vim.api.nvim_buf_is_valid(picker_obj.prompt_bufnr) then
-                    actions.close(picker_obj.prompt_bufnr)
-                end
-            end)
             vim.notify("No submodules found", vim.log.levels.INFO)
             return
         end
 
-        pcall(function()
-            picker_obj:refresh(finders.new_table({
-                results = subs,
-                entry_maker = make_entry_maker(),
-            }), { reset_prompt = false })
-            picker_obj.prompt_border:change_title(
-                "Submodule Commit: select dirty submodules (<C-t> to multi-select)"
-            )
-        end)
+        local items = {}
+        for i, entry in ipairs(subs) do
+            -- Clean submodules are indented + dimmed; dirty ones flush left.
+            local prefix = entry.dirty and "" or "  "
+            local main = prefix .. entry.name .. entry.summary
+            table.insert(items, {
+                idx = i,
+                text = entry.name,
+                name = entry.name,
+                dirty = entry.dirty,
+                main = main,
+                branch = entry.branch,
+            })
+        end
+
+        Snacks.picker.pick({
+            title = "Submodule Commit — <C-t> multi-select dirty, <CR> commit",
+            items = items,
+            format = function(item)
+                return {
+                    { item.main },
+                    { "  " .. item.branch, "SnacksPickerComment" },
+                }
+            end,
+            -- Per-submodule diff preview (status fallback for untracked-only).
+            preview = function(ctx)
+                local item = ctx.item
+                if not item.dirty then
+                    ctx.preview:set_lines({ "(no changes)" })
+                    ctx.preview:highlight({ ft = "diff" })
+                    return
+                end
+                return Snacks.picker.preview.cmd(
+                    { "git", "-C", item.name, "diff", "HEAD" },
+                    ctx, { ft = "diff" })
+            end,
+            -- Commit semantics: only dirty submodules can be committed.
+            -- Clean picks are dropped with a warning rather than blocked
+            -- at selection time (snacks has no per-item select veto).
+            confirm = function(picker)
+                local sels = picker:selected({ fallback = true })
+                picker:close()
+                local names, skipped = {}, {}
+                for _, s in ipairs(sels) do
+                    if s.dirty then
+                        table.insert(names, s.name)
+                    else
+                        table.insert(skipped, s.name)
+                    end
+                end
+                if #skipped > 0 then
+                    vim.notify(
+                        "Skipped clean submodule(s): "
+                            .. table.concat(skipped, ", "),
+                        vim.log.levels.WARN)
+                end
+                if #names == 0 then
+                    vim.notify("No dirty submodules selected", vim.log.levels.WARN)
+                    return
+                end
+                open_commit_float(names)
+            end,
+        })
     end)
 end
 
+--- Checkout (or create) `branch` in each named submodule, async.
+---@param names string[] submodule paths
+---@param branch string branch name
+local function do_submodule_checkouts(names, branch)
+    local pending = #names
+    local done_count = 0
+    local results = {}
+
+    for _, name in ipairs(names) do
+        -- Try checkout existing branch first
+        vim.system(
+            { "git", "-C", name, "checkout", branch },
+            { text = true },
+            function(result)
+                if result.code == 0 then
+                    vim.schedule(function()
+                        done_count = done_count + 1
+                        table.insert(results, name .. ": checked out " .. branch)
+                        if done_count == pending then
+                            vim.notify(
+                                table.concat(results, "\n"),
+                                vim.log.levels.INFO
+                            )
+                        end
+                    end)
+                else
+                    -- Branch doesn't exist, try creating it
+                    vim.system(
+                        { "git", "-C", name, "checkout", "-b", branch },
+                        { text = true },
+                        function(create_result)
+                            vim.schedule(function()
+                                done_count = done_count + 1
+                                if create_result.code == 0 then
+                                    table.insert(results, name .. ": created and checked out " .. branch)
+                                else
+                                    table.insert(results, name .. ": FAILED - " .. (create_result.stderr or "unknown error"))
+                                end
+                                if done_count == pending then
+                                    local has_errors = false
+                                    for _, r in ipairs(results) do
+                                        if r:find("FAILED") then
+                                            has_errors = true
+                                            break
+                                        end
+                                    end
+                                    vim.notify(
+                                        table.concat(results, "\n"),
+                                        has_errors and vim.log.levels.WARN or vim.log.levels.INFO
+                                    )
+                                end
+                            end)
+                        end
+                    )
+                end
+            end
+        )
+    end
+end
+
 local function submodule_checkout_picker()
-    local pickers = require("telescope.pickers")
-    local finders = require("telescope.finders")
-    local conf = require("telescope.config").values
-    local actions = require("telescope.actions")
-    local action_state = require("telescope.actions.state")
+    if not (Snacks and Snacks.picker) then
+        vim.notify("snacks picker not available", vim.log.levels.ERROR)
+        return
+    end
 
     local subs = get_all_submodules()
     if #subs == 0 then
@@ -539,112 +534,49 @@ local function submodule_checkout_picker()
         return
     end
 
-    pickers.new({}, {
-        prompt_title = "Submodule Checkout: select submodules (<C-t> to multi-select)",
-        finder = finders.new_table({
-            results = subs,
-            entry_maker = function(entry)
-                local display = entry.name .. " [" .. entry.branch .. "]"
-                return {
-                    value = entry,
-                    display = display,
-                    ordinal = entry.name,
-                }
-            end,
-        }),
-        sorter = conf.generic_sorter({}),
-        attach_mappings = function(prompt_bufnr)
-            actions.select_default:replace(function()
-                local picker = action_state.get_current_picker(prompt_bufnr)
-                local selections = picker:get_multi_selection()
-                if #selections == 0 then
-                    local entry = action_state.get_selected_entry()
-                    if entry then
-                        selections = { entry }
-                    end
-                end
-                actions.close(prompt_bufnr)
+    local items = {}
+    for i, entry in ipairs(subs) do
+        table.insert(items, {
+            idx = i,
+            text = entry.name,
+            name = entry.name,
+            display = entry.name .. " [" .. entry.branch .. "]",
+        })
+    end
 
-                if #selections == 0 then
-                    vim.notify("No submodules selected", vim.log.levels.WARN)
+    Snacks.picker.pick({
+        title = "Submodule Checkout — <C-t> multi-select, <CR> choose branch",
+        items = items,
+        format = function(item)
+            return { { item.display } }
+        end,
+        confirm = function(picker)
+            local sels = picker:selected({ fallback = true })
+            picker:close()
+            local names = {}
+            for _, s in ipairs(sels) do
+                table.insert(names, s.name)
+            end
+            if #names == 0 then
+                vim.notify("No submodules selected", vim.log.levels.WARN)
+                return
+            end
+            vim.ui.input({ prompt = "Branch name: " }, function(branch)
+                if not branch or branch == "" then
+                    vim.notify("Checkout cancelled", vim.log.levels.INFO)
                     return
                 end
-
-                local names = {}
-                for _, sel in ipairs(selections) do
-                    table.insert(names, sel.value.name)
-                end
-
-                vim.ui.input({ prompt = "Branch name: " }, function(branch)
-                    if not branch or branch == "" then
-                        vim.notify("Checkout cancelled", vim.log.levels.INFO)
-                        return
-                    end
-
-                    local pending = #names
-                    local done_count = 0
-                    local results = {}
-
-                    for _, name in ipairs(names) do
-                        -- Try checkout existing branch first
-                        vim.system(
-                            { "git", "-C", name, "checkout", branch },
-                            { text = true },
-                            function(result)
-                                if result.code == 0 then
-                                    vim.schedule(function()
-                                        done_count = done_count + 1
-                                        table.insert(results, name .. ": checked out " .. branch)
-                                        if done_count == pending then
-                                            vim.notify(
-                                                table.concat(results, "\n"),
-                                                vim.log.levels.INFO
-                                            )
-                                        end
-                                    end)
-                                else
-                                    -- Branch doesn't exist, try creating it
-                                    vim.system(
-                                        { "git", "-C", name, "checkout", "-b", branch },
-                                        { text = true },
-                                        function(create_result)
-                                            vim.schedule(function()
-                                                done_count = done_count + 1
-                                                if create_result.code == 0 then
-                                                    table.insert(results, name .. ": created and checked out " .. branch)
-                                                else
-                                                    table.insert(results, name .. ": FAILED - " .. (create_result.stderr or "unknown error"))
-                                                end
-                                                if done_count == pending then
-                                                    local has_errors = false
-                                                    for _, r in ipairs(results) do
-                                                        if r:find("FAILED") then
-                                                            has_errors = true
-                                                            break
-                                                        end
-                                                    end
-                                                    vim.notify(
-                                                        table.concat(results, "\n"),
-                                                        has_errors and vim.log.levels.WARN or vim.log.levels.INFO
-                                                    )
-                                                end
-                                            end)
-                                        end
-                                    )
-                                end
-                            end
-                        )
-                    end
-                end)
+                do_submodule_checkouts(names, branch)
             end)
-            return true
         end,
-    }):find()
+    })
 end
 
 return {
     {
-        "nvim-telescope/telescope.nvim",
+        -- Keys live on the always-loaded snacks spec (telescope is gone);
+        -- the pickers themselves are built with Snacks.picker.
+        "folke/snacks.nvim",
         keys = {
             {
                 "<leader>gS",

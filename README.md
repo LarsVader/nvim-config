@@ -4,7 +4,7 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 
 **Leader key**: `Space`
 
-**All keymaps are searchable**: press `<Space>fk` to open the keymap finder (Telescope picker). Every keymap -- including fold commands, LSP actions, debug controls, and plugin shortcuts -- is discoverable there.
+**All keymaps are searchable**: press `<Space>fk` to open the keymap finder (snacks picker). Every keymap -- including fold commands, LSP actions, debug controls, and plugin shortcuts -- is discoverable there.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ Personal Neovim configuration using [Lazy.nvim](https://github.com/folke/lazy.nv
 | Dependency | Notes |
 |------------|-------|
 | [Neovim](https://neovim.io/) >= 0.12 | |
-| [mingw64](https://winlibs.com/) | Required to build telescope-fzf-native |
+| [mingw64](https://winlibs.com/) | Provides `gcc` for compiling treesitter parsers and native plugin builds |
 | [tree-sitter-cli](https://tree-sitter.github.io/) *(auto-installed)* | Required to compile treesitter parsers. Auto-installed via `winget` on first startup if not found -- restart Neovim after install |
 | [CMake](https://cmake.org/) | |
 | [ripgrep](https://github.com/BurntSushi/ripgrep) | **Do not use the winget version** -- it is broken. Use an alternative installation method. |
@@ -73,10 +73,28 @@ Open Neovim -- Lazy.nvim will bootstrap itself and install all plugins automatic
 
 ## Navigation
 
-### Telescope -- Fuzzy Finder
+### Fuzzy Finder -- fff.nvim + snacks.picker
 
-> `lua/plugins/navigation/telescope.lua`
-> Uses ripgrep for file search, FZF native for fast sorting, smart case matching.
+> `lua/plugins/navigation/fff.lua` -- file finding + live grep (Rust-backed)
+> `lua/plugins/ui/snacks.lua` -- git, help, keymap, diagnostics and buffer pickers
+
+File finding and grep are powered by [fff.nvim](https://github.com/dmtrKovalenko/fff.nvim) (downloads a prebuilt Rust binary, falls back to `cargo build`). Everything else -- git history, help, keymaps, diagnostics -- runs through the [snacks](https://github.com/folke/snacks.nvim) picker.
+
+| Key | Action |
+|-----|--------|
+| `<C-p>` | Find files |
+| `fg` | Live grep |
+| `fz` | Live grep (fuzzy + plain modes) |
+| `fs` | Grep the word under the cursor |
+| `<leader>fh` | Help tags |
+| `<leader>fk` | Search keymaps |
+| `<leader>fr` | Resume the last picker |
+| `<leader>fq` | Quickfix list |
+| `<leader>fp` | Projects |
+| `<leader>fd` | Diagnostics |
+| `<leader>fu` | Buffers |
+
+Git pickers (`<leader>fl`, `<leader>fb`, `<leader>fS`, `<leader>fc`, `<leader>fB`) are covered under [Git](#git).
 
 ### Harpoon -- File Bookmarks
 
@@ -92,10 +110,10 @@ Open Neovim -- Lazy.nvim will bootstrap itself and install all plugins automatic
 > `lua/plugins/navigation/oil.lua`
 > Editable file browser that replaces netrw. Edit files and directories like a buffer.
 
-### Leap -- Fast Motions
+### Flash -- Fast Motions
 
-> `lua/plugins/navigation/leap.lua`
-> Jump anywhere on screen with 2 keystrokes.
+> `lua/plugins/navigation/flash.lua`
+> Jump anywhere on screen with a short label: `s` to jump, `S` for treesitter selection.
 
 ---
 
@@ -171,7 +189,7 @@ Powered by vim-fugitive, with commit history and a full interactive-rebase workf
 | `<c-r>r` | Rebase the current branch **onto** the commit under the cursor |
 | `<c-g>` | Switch which submodule's log is shown |
 
-Other git pickers: `<leader>fi` (rebase status -- see below), `<leader>fb` (branches), `<leader>fs` (status), `<leader>fc` (current file's log), `<leader>fB` (open commit in browser).
+Other git pickers: `<leader>fi` (rebase status -- see below), `<leader>fb` (branches), `<leader>fS` (status), `<leader>fc` (current file's log), `<leader>fB` (open commit in browser).
 
 ### Interactive rebase -- prepare in the picker, run on `<c-r>i`
 
@@ -215,15 +233,16 @@ While a rebase is running the status line shows **`⟳ rebase 2/4`** (from git's
 | `<Space>dc` | Close diff view |
 | `<Space>dm` | Diff against main branch |
 
-### Submodule Operations -- Multi-Select Pickers
+### Submodule & Cherry-pick Operations -- Multi-Select Pickers
 
-> `lua/plugins/sourcecontrol/git-submodules.lua`
-> Custom Telescope pickers for batch operations across git submodules. Multi-select with `<C-t>`.
+> `lua/plugins/sourcecontrol/git-submodules.lua` + `git-cherry-pick.lua`
+> Custom snacks pickers for batch operations across git submodules. Multi-select with `<C-t>`.
 
 | Key | Action |
 |-----|--------|
 | `<Space>gS` | Commit in selected dirty submodules, then update parent refs |
 | `<Space>gC` | Checkout (or create) a branch in selected submodules |
+| `<Space>gp` | Cherry-pick a commit from any branch (`<c-s>`/`<c-a>`/`<c-g>` switch submodule) |
 
 ---
 
@@ -362,7 +381,7 @@ nvim --headless -u tests/minimal_init.lua +"lua require('plenary.busted').run('t
 | Spec file | Tests | What it verifies |
 |-----------|-------|-----------------|
 | `keymap_spec.lua` | 32 | Global keymaps (keymap.lua + LSP diagnostics + fold commands) |
-| `plugin_keymap_spec.lua` | 62 | Plugin keymaps (Telescope, Harpoon, DAP, etc.) |
+| `plugin_keymap_spec.lua` | 176 | Plugin keymaps (snacks/fff pickers, Harpoon, DAP, etc.) |
 | `options_spec.lua` | 14 | Editor options (tabstop, scrolloff, etc.) |
 | `alternate_spec.lua` | 18 | Alternate file navigation (test/source, view/viewmodel, header/source, interface, xaml/codebehind, base class) |
 | `behavior_spec.lua` | 3 | Feedkeys behavioral tests (yank, quickfix, scroll) |
@@ -400,12 +419,11 @@ Run after changes to `lspandcompletion/` files, Mason packages, or SDK updates.
 | Plugin | Purpose |
 |--------|---------|
 | [lazy.nvim](https://github.com/folke/lazy.nvim) | Plugin manager |
-| [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) | Fuzzy finder |
-| [telescope-fzf-native](https://github.com/nvim-telescope/telescope-fzf-native.nvim) | FZF sorter for telescope |
+| [fff.nvim](https://github.com/dmtrKovalenko/fff.nvim) | Fuzzy file finder + live grep (Rust) |
 | [harpoon](https://github.com/ThePrimeagen/harpoon) | File bookmarks |
 | [nvim-tree](https://github.com/nvim-tree/nvim-tree.lua) | File tree explorer |
 | [oil.nvim](https://github.com/stevearc/oil.nvim) | Editable file browser |
-| [leap.nvim](https://github.com/ggandor/leap.nvim) | Fast 2-char jump motions |
+| [flash.nvim](https://github.com/folke/flash.nvim) | Jump motions + treesitter selection |
 | [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) | LSP client configuration |
 | [mason.nvim](https://github.com/williamboman/mason.nvim) | LSP/DAP/formatter installer |
 | [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) | Completion engine |

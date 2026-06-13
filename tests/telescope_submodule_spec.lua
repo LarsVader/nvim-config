@@ -179,20 +179,6 @@ describe("telescope-submodule", function()
         end)
     end)
 
-    describe("picker keymaps still registered", function()
-        local keys = {
-            { "<C-p>",      "git files" },
-            { "<leader>fg", "grep" },
-            { "<leader>fs", "string" },
-            { "<leader>fl", "commits" },
-            { "<leader>fc", "branch commits" },
-            { "<leader>fb", "branch" },
-            { "<leader>fS", "git status" },
-        }
-        for _, k in ipairs(keys) do
-            it(k[1] .. " (" .. k[2] .. ")", function()
-                assert.is_true(h.has_keymap("n", k[1]), k[1] .. " not found")
-            end)
-        end
-    end)
+    -- The finder keymaps moved off telescope onto snacks.nvim + fff.nvim
+    -- and are now asserted in plugin_keymap_spec.lua ("snacks/fff pickers").
 end)

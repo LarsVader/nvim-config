@@ -19,7 +19,7 @@ return {
 				"",
 			}
 
-			-- Buttons (use require() so Telescope gets lazy-loaded on first use)
+			-- Buttons (fff for file/grep, snacks.picker for the rest)
 			dashboard.section.buttons.val = {
 				dashboard.button("f", "  Find file",         "<cmd>lua require('fff').find_files()<cr>"),
 				dashboard.button("g", "  Live grep",         "<cmd>lua require('fff').live_grep()<cr>"),

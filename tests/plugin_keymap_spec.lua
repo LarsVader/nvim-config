@@ -2,20 +2,25 @@
 local h = dofile(vim.fn.stdpath("config") .. "/tests/helpers.lua")
 
 describe("plugin keymaps", function()
-    describe("telescope", function()
+    -- Telescope was replaced by snacks.nvim (lua/plugins/ui/snacks.lua)
+    -- for the git/util pickers and fff.nvim (lua/plugins/navigation/fff.lua)
+    -- for file finding + live grep. These are the trigger keymaps that
+    -- replaced the old telescope <leader>f* set.
+    describe("snacks/fff pickers", function()
         local keys = {
-            { "<leader>ff", "find files" },
-            { "<C-p>",      "git files" },
-            { "<leader>fg", "grep" },
-            { "<leader>fs", "string" },
-            { "<leader>fu", "buffer" },
-            { "<leader>fh", "help" },
-            { "<leader>fr", "resume" },
-            { "<leader>fl", "commits" },
-            { "<leader>fc", "branch commits" },
-            { "<leader>fb", "branch" },
-            { "<leader>fS", "git status" },
-            { "<leader>fk", "keymap" },
+            { "<C-p>",      "fff find files" },
+            { "fg",         "fff live grep" },
+            { "<leader>fl", "snacks git log" },
+            { "<leader>fb", "snacks git branches" },
+            { "<leader>fS", "snacks git status" },
+            { "<leader>fc", "snacks git log file" },
+            { "<leader>fh", "snacks help" },
+            { "<leader>fk", "snacks keymaps" },
+            { "<leader>fr", "snacks resume" },
+            { "<leader>fq", "snacks quickfix" },
+            { "<leader>fp", "snacks projects" },
+            { "<leader>fd", "snacks diagnostics" },
+            { "<leader>fu", "snacks buffers" },
         }
         for _, k in ipairs(keys) do
             it(k[1] .. " (" .. k[2] .. ")", function()
@@ -157,9 +162,12 @@ describe("plugin keymaps", function()
         end)
     end)
 
-    describe("leap", function()
-        it("s (leap search)", function()
+    describe("flash", function()
+        it("s (flash jump)", function()
             assert.is_true(h.has_keymap("n", "s"), "s not found")
+        end)
+        it("S (flash treesitter)", function()
+            assert.is_true(h.has_keymap("n", "S"), "S not found")
         end)
     end)
 
@@ -233,6 +241,7 @@ describe("plugin keymaps", function()
             { "<leader>gs", "status" },
             { "<leader>gb", "blame" },
             { "<leader>gc", "commit" },
+            { "<leader>ga", "amend (soft reset)" },
             { "<leader>gd", "diff" },
             { "<leader>gm", "diffsplit" },
         }

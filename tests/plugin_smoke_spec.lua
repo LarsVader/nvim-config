@@ -50,30 +50,39 @@ describe("plugin smoke tests", function()
         end)
     end)
 
-    describe("telescope", function()
+    -- Telescope was replaced by snacks.nvim (git/util pickers) and
+    -- fff.nvim (file finding + live grep).
+    describe("snacks.picker", function()
         it("loads without error", function()
-            local ok, err = h.force_load_plugin("telescope.nvim")
-            assert.is_true(ok, "telescope failed to load: " .. tostring(err))
+            local ok, err = h.force_load_plugin("snacks.nvim")
+            assert.is_true(ok, "snacks.nvim failed to load: " .. tostring(err))
         end)
 
-        it("telescope.builtin.find_files is a function", function()
-            local builtin = require("telescope.builtin")
-            assert.equals("function", type(builtin.find_files), "find_files should be a function")
+        it("Snacks.picker.pick is a function", function()
+            h.force_load_plugin("snacks.nvim")
+            assert.is_not_nil(Snacks, "Snacks global should exist")
+            assert.equals("function", type(Snacks.picker.pick),
+                "Snacks.picker.pick should be a function")
         end)
 
-        it("remaps Tab/S-Tab to move_selection_previous/next (inverted)", function()
-            local conf = require("telescope.config").values
-            local actions = require("telescope.actions")
-            local i_mappings = conf.mappings.i
-            local n_mappings = conf.mappings.n
-            assert.equals(actions.move_selection_previous, i_mappings["<Tab>"],
-                "insert mode <Tab> should be move_selection_previous")
-            assert.equals(actions.move_selection_next, i_mappings["<S-Tab>"],
-                "insert mode <S-Tab> should be move_selection_next")
-            assert.equals(actions.move_selection_previous, n_mappings["<Tab>"],
-                "normal mode <Tab> should be move_selection_previous")
-            assert.equals(actions.move_selection_next, n_mappings["<S-Tab>"],
-                "normal mode <S-Tab> should be move_selection_next")
+        it("Snacks.picker.git_status builtin is a function", function()
+            h.force_load_plugin("snacks.nvim")
+            assert.equals("function", type(Snacks.picker.git_status),
+                "Snacks.picker.git_status should be a function")
+        end)
+    end)
+
+    describe("fff", function()
+        it("loads without error", function()
+            local ok, err = h.force_load_plugin("fff.nvim")
+            assert.is_true(ok, "fff.nvim failed to load: " .. tostring(err))
+        end)
+
+        it("fff.find_files is a function", function()
+            local ok, fff = pcall(require, "fff")
+            assert.is_true(ok, "fff module failed to require: " .. tostring(fff))
+            assert.equals("function", type(fff.find_files),
+                "fff.find_files should be a function")
         end)
     end)
 
@@ -403,12 +412,19 @@ describe("plugin smoke tests", function()
         end)
     end)
 
-    describe("leap", function()
+    -- leap.nvim was replaced by flash.nvim (lua/plugins/navigation/flash.lua);
+    -- leap.lua is kept but disabled. The `s` jump keymap is asserted in
+    -- plugin_keymap_spec.lua.
+    describe("flash", function()
         it("loads without error", function()
-            local ok, err = pcall(function()
-                require("leap")
-            end)
-            assert.is_true(ok, "leap failed to require: " .. tostring(err))
+            local ok, err = h.force_load_plugin("flash.nvim")
+            assert.is_true(ok, "flash.nvim failed to load: " .. tostring(err))
+        end)
+
+        it("flash.jump is a function", function()
+            local ok, flash = pcall(require, "flash")
+            assert.is_true(ok, "flash module failed to require: " .. tostring(flash))
+            assert.equals("function", type(flash.jump), "flash.jump should be a function")
         end)
     end)
 

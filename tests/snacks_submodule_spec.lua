@@ -73,8 +73,9 @@ describe("snacks-submodule", function()
     end)
 
     describe("git_log keymap", function()
-        it("<leader>gl is registered", function()
-            assert.is_true(h.has_keymap("n", "<leader>gl"), "<leader>gl not found")
+        -- <leader>fl routes through lars.snacks-submodule.open("git_log").
+        it("<leader>fl is registered", function()
+            assert.is_true(h.has_keymap("n", "<leader>fl"), "<leader>fl not found")
         end)
     end)
 

@@ -245,7 +245,7 @@ return {
 				require("lars.snacks-rebase").open_todo()
 			end, desc = "Rebase TODO (in-progress steps)" },
 			{ "<leader>fb", function() require("lars.snacks-submodule").open("git_branches") end, desc = "Git Log (submodule-aware)" },
-			{ "<leader>fs", function() require("lars.snacks-submodule").open("git_status") end, desc = "Git Status (submodule-aware)" },
+			{ "<leader>fS", function() require("lars.snacks-submodule").open("git_status") end, desc = "Git Status (submodule-aware)" },
 			{ "<leader>fc", function() Snacks.picker.git_log_file() end,                          desc = "Git Log (submodule-aware)" },
 			{ "<leader>fB", function() Snacks.gitbrowse() end,                                    desc = "Git Browse",               mode = { "n", "v" } },
 			{ "<leader>fh", function() Snacks.picker.help() end,                                  desc = "Help Pages" },
