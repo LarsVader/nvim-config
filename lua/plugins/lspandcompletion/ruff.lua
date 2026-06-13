@@ -14,7 +14,7 @@ vim.lsp.config("ruff", {
 			on_dir(root)
 		end
 	end,
-	capabilities = require("cmp_nvim_lsp").default_capabilities(),
+	-- capabilities provided globally via vim.lsp.config('*') (see nvim-lsp-config.lua)
 	init_options = {
 		settings = {
 			args = {},

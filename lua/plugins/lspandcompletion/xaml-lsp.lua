@@ -85,7 +85,7 @@ vim.lsp.config("axsg_lsp", {
 			on_dir(root)
 		end
 	end,
-	capabilities = require("cmp_nvim_lsp").default_capabilities(),
+	-- capabilities provided globally via vim.lsp.config('*') (see nvim-lsp-config.lua)
 	cmd_env = {
 		VCTargetsPath = "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/MSBuild/Microsoft/VC/v180/",
 		MSBuildSDKsPath = "C:/Program Files/dotnet/sdk/10.0.201/Sdks",

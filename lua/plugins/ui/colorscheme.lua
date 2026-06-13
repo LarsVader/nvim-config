@@ -85,15 +85,13 @@ return {
 		'zaldih/themery.nvim',
 		lazy = false,
 		priority = 1000,
-		dependencies = {
-			'EdenEast/nightfox.nvim',
-			'folke/tokyonight.nvim',
-			'catppuccin/nvim',
-			'rose-pine/neovim',
-			'rebelot/kanagawa.nvim',
-			'sainnhe/everforest',
-			'eldritch-theme/eldritch.nvim',
-		},
+		-- NOTE: the colorscheme plugins are intentionally NOT listed as
+		-- dependencies. They are declared as separate `lazy = true` specs
+		-- above, and lazy.nvim auto-loads a colorscheme plugin on demand
+		-- when `:colorscheme <name>` is invoked. Listing them here forced
+		-- ALL seven to load at startup (~1.1s cold) even though only the
+		-- active theme is needed. Themery applies themes by name, so it
+		-- triggers that on-demand load for just the one in use.
 		keys = {
 			{ "<leader>ut", "<cmd>Themery<cr>", desc = "Theme switcher" },
 		},

@@ -1,4 +1,12 @@
-local capabilities = require('cmp_nvim_lsp').default_capabilities()
+-- Advertise nvim-cmp's extended completion capabilities to EVERY LSP
+-- server via the wildcard ('*') config, which vim.lsp merges into each
+-- named vim.lsp.config('<server>'). Centralised here so the individual
+-- server config files (ruff, xaml, clangd, lua_ls, ...) don't each
+-- require('cmp_nvim_lsp') at spec-import time.
+vim.lsp.config('*', {
+	capabilities = require('cmp_nvim_lsp').default_capabilities(),
+})
+
 return {
 	{
 		'neovim/nvim-lspconfig',
